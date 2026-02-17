@@ -33,6 +33,7 @@ from config import RobotConfig, EnvConfig, RewardConfig, GUIConfig
 from env import Environment
 from model import Model
 
+
 class PlotPanel:
     """Renders metrics into a pygame.Surface via offscreen matplotlib Agg."""
 
@@ -59,7 +60,9 @@ class PlotPanel:
         if self.surface is not None and (self._frame % self.update_every) != 0:
             return self.surface
 
-        self.ax1.clear(); self.ax2.clear(); self.ax3.clear()
+        self.ax1.clear()
+        self.ax2.clear()
+        self.ax3.clear()
 
         if mode == "train":
             train = metrics["train"]
@@ -77,9 +80,11 @@ class PlotPanel:
                 # uniform moving average with expanding window for early episodes
                 cs = np.cumsum(s)
                 ma = np.empty_like(cs)
-                ma[:self.win] = cs[:self.win] / np.arange(1, min(self.win, s.size) + 1, dtype=np.float32)
+                ma[: self.win] = cs[: self.win] / np.arange(
+                    1, min(self.win, s.size) + 1, dtype=np.float32
+                )
                 if s.size > self.win:
-                    ma[self.win:] = (cs[self.win:] - cs[:-self.win]) / self.win
+                    ma[self.win :] = (cs[self.win :] - cs[: -self.win]) / self.win
                 self.ax2.plot(*self._downsample(ma), linewidth=2)
 
             self.ax2.set_ylim(-0.05, 1.05)
@@ -171,7 +176,9 @@ class GUIApp:
         self.screen: Optional[pygame.Surface] = None
         self.clock: Optional[pygame.time.Clock] = None
 
-        self.env: Environment = self._make_env(train=(self.mode == "train"), load_model=(self.mode == "test"))
+        self.env: Environment = self._make_env(
+            train=(self.mode == "train"), load_model=(self.mode == "test")
+        )
         self.env.reset_episode(train=(self.mode == "train"))
 
         self.episode_count: int = 0
@@ -243,9 +250,11 @@ class GUIApp:
 
             # run multiple env steps per rendered frame for speed
             if (not paused) and self.pause_frames_left <= 0:
-                spf = (self.cfg.steps_per_frame_no_sim
-                       if (self.mode == "train" and self.no_sim_train)
-                       else self.cfg.steps_per_frame)
+                spf = (
+                    self.cfg.steps_per_frame_no_sim
+                    if (self.mode == "train" and self.no_sim_train)
+                    else self.cfg.steps_per_frame
+                )
                 if self.mode == "test":
                     spf = 1  # always 1 step per frame in test for visibility
 
@@ -300,10 +309,7 @@ class GUIApp:
 
                 # separator
                 pygame.draw.line(
-                    self.screen, (200, 200, 200),
-                    (sim_w, 0),
-                    (sim_w, self.cfg.window_size[1]),
-                    2
+                    self.screen, (200, 200, 200), (sim_w, 0), (sim_w, self.cfg.window_size[1]), 2
                 )
 
             # plots panel (right or full screen)
@@ -315,18 +321,25 @@ class GUIApp:
             s = metrics["train"]["success"]
             win = min(self.plot_panel.win, len(s))
             s_rate = sum(s[-win:]) / win if s else 0
-            hud = f"mode={self.mode}  ep={self.episode_count}  step={render['step']}  dist={render['distance']:.1f} succcess={s_rate:.3f}"
+            hud = (
+                f"mode={self.mode}  ep={self.episode_count}  step={render['step']}  dist={render['distance']:.1f}" \
+                + (f"succcess={s_rate:.3f}"
+                if self.mode == "train"
+                else "")
+            )
             txt = font.render(hud, True, (20, 20, 20))
             self.screen.blit(txt, (10, 10))
 
             pygame.display.flip()
 
-            # NOTE: no clock.tick(...) here -> loop runs as fast as possible
-            # If you later want to cap CPU usage, add: self.clock.tick(240)
+            if self.mode == "test":
+                self.clock.tick(20)
 
         pygame.quit()
 
-    def _draw_robot(self, screen: pygame.Surface, render: Dict[str, Any], offset: Tuple[int, int]) -> None:
+    def _draw_robot(
+        self, screen: pygame.Surface, render: Dict[str, Any], offset: Tuple[int, int]
+    ) -> None:
         ox, oy = offset
         joints = render["joints"]
         target = render["target"]
@@ -341,25 +354,29 @@ class GUIApp:
         pygame.draw.circle(screen, (220, 50, 50), (tx, ty), 6)
         pygame.draw.circle(screen, (220, 50, 50), (tx, ty), int(self.env_cfg.target_thresh), 1)
 
-def parse_args() -> argparse.Namespace:
-        p = argparse.ArgumentParser()
-        g = p.add_mutually_exclusive_group(required=True)
-        g.add_argument("--train", action="store_true", help="Train policy, save, then run test.")
-        g.add_argument("--test", action="store_true", help="Run test only (loads model from --model-path).")
 
-        p.add_argument("--no-sim", action="store_true", help="(train only) Hide simulation panel; show plots only.")
-        p.add_argument("--model-path", type=str, default=None)
-        p.add_argument("--train-episodes", type=int, default=None)
-        p.add_argument("--test-episodes", type=int, default=None)
-        p.add_argument("--seed", type=int, default=42)
-        return p.parse_args()
-    
+def parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser()
+    g = p.add_mutually_exclusive_group(required=True)
+    g.add_argument("--train", action="store_true", help="Train policy, save, then run test.")
+    g.add_argument(
+        "--test", action="store_true", help="Run test only (loads model from --model-path)."
+    )
+
+    p.add_argument(
+        "--no-sim", action="store_true", help="(train only) Hide simulation panel; show plots only."
+    )
+    p.add_argument("--model-path", type=str, default=None)
+    p.add_argument("--train-episodes", type=int, default=None)
+    p.add_argument("--test-episodes", type=int, default=None)
+    p.add_argument("--seed", type=int, default=42)
+    return p.parse_args()
 
 
 def main() -> None:
-    
+
     args = parse_args()
-    
+
     robot_cfg = RobotConfig()
     env_cfg = EnvConfig()
     rew_cfg = RewardConfig()
@@ -368,7 +385,6 @@ def main() -> None:
     gui_cfg.train_episodes = args.train_episodes or gui_cfg.train_episodes
     gui_cfg.test_episodes = args.test_episodes or gui_cfg.test_episodes
     gui_cfg.model_path = args.model_path or gui_cfg.model_path
-
 
     start_mode = "train" if args.train else "test"
     no_sim_train = bool(args.no_sim) if args.train else False
