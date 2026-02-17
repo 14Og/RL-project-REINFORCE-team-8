@@ -47,6 +47,14 @@ class Environment:
 
         self.robot = Robot(robot_cfg, seed=seed)
         self.model = model
+        self._rng = np.random.default_rng(seed)
+
+        # reachable annulus for target randomization
+        base = np.asarray(robot_cfg.base_xy, dtype=np.float32)
+        L1, L2 = float(robot_cfg.link_lengths[0]), float(robot_cfg.link_lengths[1])
+        self._base = base
+        self._reach_max = L1 + L2          # outer radius
+        self._reach_min = max(abs(L1 - L2), L1)  # inner radius: at least half a link away from base
 
         # episode state
         self._train_mode: bool = True
@@ -69,6 +77,10 @@ class Environment:
         self._train_mode = bool(train)
 
         self.robot.reset(randomize=randomize_theta)
+
+        # randomize target within reachable workspace
+        if self.env_cfg.randomize_target:
+            self.target = self._sample_reachable_target()
 
         self.steps = 0
         self.done = False
@@ -115,7 +127,6 @@ class Environment:
             u = self.model.select_action(st, train=True)
         else:
             u = self.model.select_action(st, train=False)
-
         _, self._curr_action = self.robot.step(u)
         self.steps += 1
 
@@ -175,12 +186,24 @@ class Environment:
 
     # ---------------- internals ----------------
 
+    def _sample_reachable_target(self) -> np.ndarray:
+        """Uniform random point in the reachable annulus around the robot base."""
+        angle = self._rng.uniform(0, 2 * np.pi)
+        # uniform in area: r = sqrt(U * (R_max² - R_min²) + R_min²)
+        r_sq = self._rng.uniform(self._reach_min ** 2, self._reach_max ** 2)
+        r = np.sqrt(r_sq)
+        return self._base + np.array([r * np.cos(angle), r * np.sin(angle)], dtype=np.float32)
+
     def _get_state(self) -> State:
         """Get State from robot, then extend with dist_x/dist_y."""
         st = self.robot.obs()
 
-        dx = float(self.target[0] - float(st.ee_x))
-        dy = float(self.target[1] - float(st.ee_y))
+        # normalize ee_x, ee_y: center on base, scale by max reach → [-1, 1]
+        st.ee_x = (st.ee_x - self._base[0]) / self._reach_max
+        st.ee_y = (st.ee_y - self._base[1]) / self._reach_max
+
+        dx = float(self.target[0] - self.robot.end_effector_xy()[0])
+        dy = float(self.target[1] - self.robot.end_effector_xy()[1])
 
         if self.env_cfg.use_abs_dist:
             dx, dy = abs(dx), abs(dy)
@@ -200,19 +223,18 @@ class Environment:
         dist = float(np.linalg.norm(ee - self.target))
 
         # progress reward 
-        progress = float(self._prev_dist - dist) if np.isfinite(self._prev_dist) else 0.0
+        progress = float(self._prev_dist - dist)
         reward = float(self.rew_cfg.progress_scale) * progress - float(self.rew_cfg.step_penalty)
         
-        # smothness penalty
+        # smoothness penalties
         a_t = self._curr_action
         if a_t is not None and self.rew_cfg.action_l2_scale != 0.0:
-            reward -= self.rew_cfg.action_l2_scale * float(np.dot(a_t, a_t))
+            reward -= self.rew_cfg.action_l2_scale * float(np.linalg.norm(a_t, a_t))
 
         if a_t is not None and self._prev_action is not None and self.rew_cfg.action_delta_scale != 0.0:
             da = a_t - self._prev_action
             reward -= self.rew_cfg.action_delta_scale * float(np.dot(da, da))
-
-
+            
         goal_reached = dist < float(self.env_cfg.target_thresh)
 
         fail = False
@@ -245,6 +267,8 @@ class Environment:
         if goal_reached:
             reward += float(self.rew_cfg.goal_reward)
         elif fail:
+            reward -= float(self.rew_cfg.fail_penalty)
+        elif timeout:
             reward -= float(self.rew_cfg.fail_penalty)
 
         self._prev_dist = dist

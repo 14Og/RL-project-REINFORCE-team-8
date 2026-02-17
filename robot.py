@@ -98,7 +98,7 @@ class Robot:
 
         # clipping theta if config has this parameter
         if self.cfg.dtheta_max is not None:
-            dtheta = self.clip_theta_tanh(dtheta, self.cfg.dtheta_max)
+            dtheta = self.clip_dtheta(dtheta, self.cfg.dtheta_max)
 
         self._theta = self._theta + dtheta
 
@@ -113,8 +113,9 @@ class Robot:
         return (theta + math.pi) % (2 * math.pi) - math.pi
 
     @staticmethod
-    def clip_theta_tanh(dtheta: float, max_dtheta: float) -> float:
-        return max_dtheta * np.tanh(dtheta)
+    def clip_dtheta(dtheta: float, max_dtheta: float) -> float:
+        """Hard-clip action to [-max_dtheta, max_dtheta]."""
+        return np.clip(dtheta, -max_dtheta, max_dtheta)
 
 
 if __name__ == "__main__":

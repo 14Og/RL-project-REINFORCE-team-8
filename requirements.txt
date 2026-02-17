@@ -26,13 +26,12 @@ pure_eval
 pygame
 Pygments
 pyparsing
+python-dateutil
 setuptools
 six
 stack-data
 sympy
 torch
-torchaudio
-torchvision
 traitlets
 typing_extensions
 wcwidth

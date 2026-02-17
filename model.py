@@ -38,34 +38,42 @@ from collections import deque
 from typing import Deque, Dict, List, Optional, Sequence, Tuple, Union
 
 class GaussianMLPPolicy(nn.Module):
-    """Diagonal Gaussian policy over raw actions u (no tanh/squash on mu)."""
+    """Diagonal Gaussian policy with tanh-bounded mean and log-std sigma."""
 
     def __init__(
         self,
         obs_dim: int,
         act_dim: int,
-        hidden_sizes: Tuple[int, int] = (128, 128),
-        sigma_min: float = 0.1,
-        sigma_max: float = 1.0,
+        hidden_sizes: Tuple[int, ...] = (128, 128),
+        action_limit: float = 0.1,
+        log_std_min: float = -3.0,
+        log_std_max: float = -0.5,
     ) -> None:
         super().__init__()
-        h1, h2 = hidden_sizes
-        self.net = nn.Sequential(
-            nn.Linear(obs_dim, h1),
-            nn.ReLU(),
-            nn.Linear(h1, h2),
-            nn.ReLU(),
-        )
-        self.mu_head = nn.Linear(h2, act_dim)
-        self.sigma_head = nn.Linear(h2, act_dim)
-        self.sigma_min = float(sigma_min)
-        self.sigma_max = float(sigma_max)
+        layers: list[nn.Module] = []
+        in_dim = obs_dim
+        for h in hidden_sizes:
+            layers.append(nn.Linear(in_dim, h))
+            layers.append(nn.ReLU())
+            in_dim = h
+        self.net = nn.Sequential(*layers)
+        self.mu_head = nn.Linear(in_dim, act_dim)
+        self.log_std_head = nn.Linear(in_dim, act_dim)
+
+        self.action_limit = float(action_limit)
+        self.log_std_min = float(log_std_min)
+        self.log_std_max = float(log_std_max)
+
+        nn.init.zeros_(self.mu_head.weight)
+        nn.init.zeros_(self.mu_head.bias)
+        nn.init.zeros_(self.log_std_head.weight)
+        nn.init.zeros_(self.log_std_head.bias)
 
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         z = self.net(x)
-        mu = self.mu_head(z)  # raw mean
-        sigma = F.softplus(self.sigma_head(z))
-        sigma = torch.clamp(sigma, min=self.sigma_min, max=self.sigma_max)
+        mu = torch.tanh(self.mu_head(z)) * self.action_limit
+        log_std = torch.clamp(self.log_std_head(z), self.log_std_min, self.log_std_max)
+        sigma = torch.exp(log_std) * self.action_limit
         return mu, sigma
 
 
@@ -76,17 +84,19 @@ class Model:
         self,
         obs_dim: int = 8,
         act_dim: int = 2,
-        *,
-        gamma: float = 0.95,
-        lr: float = 1e-3,
+        gamma: float = 0.99,
+        lr: float = 1e-4,
+        lr_min: float = 1e-5,
+        total_episodes: int = 5000,
         baseline_window: int = 200,
         grad_clip_norm: float = 1.0,
         device: Optional[str] = None,
         policy: Optional[nn.Module] = None,
         # used only if policy is None
-        hidden_sizes: Tuple[int, int] = (128, 128),
-        sigma_min: float = 0.1,
-        sigma_max: float = 1.0,
+        hidden_sizes: Tuple[int, ...] = (128, 128),
+        action_limit: float = 0.1,
+        log_std_min: float = -3.0,
+        log_std_max: float = -0.5,
     ) -> None:
         if not (0.0 < gamma <= 1.0):
             raise ValueError("gamma must be in (0, 1].")
@@ -100,11 +110,15 @@ class Model:
                 obs_dim=obs_dim,
                 act_dim=act_dim,
                 hidden_sizes=hidden_sizes,
-                sigma_min=sigma_min,
-                sigma_max=sigma_max,
+                action_limit=action_limit,
+                log_std_min=log_std_min,
+                log_std_max=log_std_max,
             )
         self.policy = policy.to(self.device)
         self.optimizer = torch.optim.Adam(self.policy.parameters(), lr=float(lr))
+        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            self.optimizer, T_max=int(total_episodes), eta_min=float(lr_min)
+        )
 
         # moving-average baseline over recent episode returns (return-to-go from t=0)
         self.baseline_buffer: Deque[float] = deque(maxlen=int(baseline_window))
@@ -113,7 +127,7 @@ class Model:
         self._log_probs: List[torch.Tensor] = []
         self._rewards: List[float] = []
         self._steps: int = 0
-
+        
         # data for plotting elsewhere (per-episode)
         self.train: Dict[str, List[float]] = {
             "total_reward": [],
@@ -151,7 +165,7 @@ class Model:
 
         if train:
             u = dist.sample()
-            logp = dist.log_prob(u).sum(dim=-1)  # (1,)
+            logp = dist.log_prob(u).sum(dim=-1)
             self._log_probs.append(logp.squeeze(0))
             self._steps += 1
             return u.squeeze(0).detach().cpu().numpy()
@@ -193,14 +207,18 @@ class Model:
         episode_return = float(returns[0].item())
 
         advantages = returns - baseline  # baseline-only
+        # normalise advantages for variance reduction
+        # if advantages.numel() > 1:
+        #     advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
         logps = torch.stack(self._log_probs).to(self.device)  # (T,)
 
-        loss = -(logps * advantages).sum()
+        loss = -(logps * advantages).mean()
 
         self.optimizer.zero_grad(set_to_none=True)
         loss.backward()
         grad_norm = torch.nn.utils.clip_grad_norm_(self.policy.parameters(), self.grad_clip_norm)
         self.optimizer.step()
+        self.scheduler.step()
 
         # update baseline after update
         self.baseline_buffer.append(episode_return)
