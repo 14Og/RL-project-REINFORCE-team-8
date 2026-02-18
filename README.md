@@ -85,7 +85,7 @@ where $G_t = \sum_{k=t}^{T} \gamma^{k-t} r_k$ is the discounted return from step
 
 To reduce variance of the gradient estimate without introducing bias, we subtract a **baseline** $b$ from the returns:
 
-$$\nabla_\theta J(\theta) \approx \sum_{t=0}^{T} \nabla_\theta \log \pi_\theta(a_t \mid s_t) \cdot (G_t - b)$$
+$$\nabla_\theta J(\theta) = \mathbb{E}_{\tau \sim \pi_\theta} \left[ \sum_{t=0}^{T} \nabla_\theta \log \pi_\theta(A_t \mid S_t) \cdot (G_t-b) \right]$$
 
 We use a **moving-average baseline**: $b = \text{mean}(G_0\text{ of last } N \text{ episodes})$, where $N = 200$.
 
