@@ -1,10 +1,9 @@
-import math
 import numpy as np
 
 from dataclasses import dataclass, field
 
 
-@dataclass()
+@dataclass
 class State:
     sin_th1: float  # sin() for base joint
     cos_th1: float  # cos() for base joint
@@ -28,3 +27,7 @@ class State:
                 self.dist_y,
             ], dtype
         )
+
+
+if __name__ == "__main__":
+    raise RuntimeError("Run main.py instead.")

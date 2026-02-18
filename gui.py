@@ -1,22 +1,3 @@
-"""gui.py
-
-Pygame "god GUI" that visualizes:
-- simulation panel (robot arm + target) using pygame
-- plots panel (matplotlib rendered offscreen, blitted into pygame)
-
-Modes:
-- --train: run training, save model, then automatically run test (no learning)
-- --test: load model and run test only (no learning)
-
-Important changes per your request:
-- removed time-based control stepping / accumulators
-- env.step() is called as fast as the main loop can run
-- plot panel updates by frame count (not time)
-- added argparse: --train / --test and --no-sim (train only)
-
-This file intentionally keeps env/model/robot free of any pygame/matplotlib deps.
-"""
-
 from __future__ import annotations
 
 from typing import Optional, Tuple, Dict, Any
@@ -33,21 +14,17 @@ from model import Model
 
 
 class PlotPanel:
-    """Renders metrics into a pygame.Surface via offscreen matplotlib Agg."""
-
     def __init__(self, size: Tuple[int, int], update_every: int = 10) -> None:
         self.w, self.h = size
         self.update_every = max(1, int(update_every))
         self._frame = 0
         self.surface: Optional[pygame.Surface] = None
         self.win = 50
-        self._max_plot_points = 500  # downsample arrays beyond this for speed
+        self._max_plot_points = 500
 
-        # dpi=100 => figsize in inches = pixels / 100
         self.fig = Figure(figsize=(self.w / 100.0, self.h / 100.0), dpi=100)
         self.canvas = FigureCanvas(self.fig)
 
-        # 3 stacked plots
         self.ax1 = self.fig.add_subplot(311)
         self.ax2 = self.fig.add_subplot(312)
         self.ax3 = self.fig.add_subplot(313)
@@ -75,7 +52,6 @@ class PlotPanel:
             self.ax1.grid(True, alpha=0.3)
 
             if s.size:
-                # uniform moving average with expanding window for early episodes
                 cs = np.cumsum(s)
                 ma = np.empty_like(cs)
                 ma[: self.win] = cs[: self.win] / np.arange(
@@ -132,7 +108,6 @@ class PlotPanel:
         return surf
 
     def _downsample(self, arr: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        """Return (x, y) with at most _max_plot_points points, using strided sampling."""
         n = arr.shape[0]
         if n <= self._max_plot_points:
             return np.arange(n), arr
@@ -141,7 +116,6 @@ class PlotPanel:
 
     @staticmethod
     def _running_mean(arr: np.ndarray, win: int) -> np.ndarray:
-        """Expanding-then-sliding running mean, same length as input."""
         cs = np.cumsum(arr)
         ma = np.empty_like(cs)
         ma[:win] = cs[:win] / np.arange(1, min(win, arr.size) + 1, dtype=np.float32)
@@ -184,7 +158,6 @@ class GUI:
         self.episode_count: int = 0
         self.pause_frames_left: int = 0
 
-        # Plot panel width depends on whether we hide sim in train
         sim_w = 0 if (self.mode == "train" and self.no_sim_train) else self.cfg.sim_width
         plot_w = self.cfg.window_size[0] - sim_w
         plot_h = self.cfg.window_size[1]
@@ -214,7 +187,6 @@ class GUI:
         return env
 
     def _switch_to_test(self) -> None:
-        # save policy and create a new env with loaded weights
         self.env.model.save(self.cfg.model_path, include_optimizer=False, include_metrics=False)
 
         self.mode = "test"
@@ -224,7 +196,6 @@ class GUI:
         self.env = self._make_env(train=False, load_model=True)
         self.env.reset_episode(train=False)
 
-        # re-init plot panel width (simulation is always shown in test)
         sim_w = self.cfg.sim_width
         plot_w = self.cfg.window_size[0] - sim_w
         plot_h = self.cfg.window_size[1]
@@ -254,7 +225,6 @@ class GUI:
                     elif event.key == pygame.K_SPACE:
                         paused = not paused
 
-            # run multiple env steps per rendered frame for speed
             if (not paused) and self.pause_frames_left <= 0:
                 spf = (
                     self.cfg.steps_per_frame_no_sim
@@ -262,10 +232,9 @@ class GUI:
                     else self.cfg.steps_per_frame
                 )
                 if self.mode == "test":
-                    spf = 1  # always 1 step per frame in test for visibility
+                    spf = 1
 
                 for _ in range(spf):
-                    # pump events periodically so the OS doesn't think we're frozen
                     for event in pygame.event.get():
                         if event.type == pygame.QUIT:
                             running = False
@@ -286,7 +255,6 @@ class GUI:
                             self.pause_frames_left = int(self.cfg.pause_on_done_frames)
                             break
 
-                        # mode transitions
                         if self.mode == "train" and self.episode_count >= self.cfg.train_episodes:
                             self._switch_to_test()
                             break
@@ -298,32 +266,26 @@ class GUI:
             elif self.pause_frames_left > 0:
                 self.pause_frames_left -= 1
 
-            # draw
             self.screen.fill((245, 245, 245))
 
-            # decide layout for this frame
             show_sim = not (self.mode == "train" and self.no_sim_train)
             sim_w = self.cfg.sim_width if show_sim else 0
             plot_x = sim_w
 
-            # simulation panel (left)
             render = self.env.get_render_data()
             if show_sim:
                 sim_rect = pygame.Rect(0, 0, sim_w, self.cfg.window_size[1])
                 pygame.draw.rect(self.screen, (255, 255, 255), sim_rect)
                 self._draw_robot(self.screen, render, offset=(0, 0))
 
-                # separator
                 pygame.draw.line(
                     self.screen, (200, 200, 200), (sim_w, 0), (sim_w, self.cfg.window_size[1]), 2
                 )
 
-            # plots panel (right or full screen)
             metrics = self.env.get_metrics()
             plot_surface = self.plot_panel.render(metrics, self.mode)
             self.screen.blit(plot_surface, (plot_x, 0))
 
-            # HUD
             s = metrics["train"]["success"]
             win = min(self.plot_panel.win, len(s))
             s_rate = sum(s[-win:]) / win if s else 0
@@ -357,3 +319,7 @@ class GUI:
         tx, ty = int(target[0] + ox), int(target[1] + oy)
         pygame.draw.circle(screen, (220, 50, 50), (tx, ty), 6)
         pygame.draw.circle(screen, (220, 50, 50), (tx, ty), int(self.env_cfg.target_thresh), 1)
+
+
+if __name__ == "__main__":
+    raise RuntimeError("Run main.py instead.")

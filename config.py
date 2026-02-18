@@ -1,17 +1,12 @@
-import numpy as np
-
 from dataclasses import dataclass
 from typing import Tuple, Optional
 
 @dataclass(frozen=True)
 class RobotConfig:
-    """robot configuration (pure kinematics)."""
-
     base_xy: Tuple[float, float] = (400, 400)
     link_lengths: Tuple[float, float] = (100, 80)
-
     wrap_angles: bool = True
-    dtheta_max: Optional[float] = 0.1  # if set, action will be clipped per joint
+    dtheta_max: Optional[float] = 0.1
 
 @dataclass
 class ModelConfig:
@@ -26,37 +21,21 @@ class ModelConfig:
 
 @dataclass
 class RewardConfig:
-    """Reward coefficients"""
-
-    # Dense shaping
-    progress_scale: float = 0.03     # r += progress_scale * (prev_dist - dist)
-    step_penalty: float = 0.01     # r -= step_penalty each step
-
-    # Terminal bonuses/penalties
-    goal_reward: float = 15.0        # added when goal reached
-    fail_penalty: float = 5.0       # subtracted when failure triggered
-    
-    # Trajectory smoothness
-    action_l2_scale: float = 0.0     # penalise large joint velocities: ||a_t||²
-    action_delta_scale: float = 0.0  # penalise jerk: ||a_t - a_{t-1}||²
+    progress_scale: float = 0.03
+    step_penalty: float = 0.01
+    goal_reward: float = 15.0
+    fail_penalty: float = 5.0
+    action_l2_scale: float = 0.0
+    action_delta_scale: float = 0.0
 
 @dataclass
 class EnvConfig:
-    """Environment/termination/state-feature parameters."""
-
     target_xy: Tuple[float, float] = (100, 300.0)
-    randomize_target: bool = True         # randomize target each episode within reachable workspace
-
-    # Termination
+    randomize_target: bool = True
     target_thresh: float = 30.0
     max_steps: int = 200
-    
-    # Constraints / failure conditions
     forbid_link_target_intersection: bool = True
-    target_point_radius: float = 1.0   # distance threshold from target point to a link segment
-
-    # Distance features in State (dist_x, dist_y)
-    # Your comment says abs(target - ee); keep that as default.
+    target_point_radius: float = 1.0
     use_abs_dist: bool = False
     normalize_dist: bool = True
     dist_scale: float = 300.0
@@ -64,11 +43,15 @@ class EnvConfig:
 @dataclass
 class GUIConfig:
     window_size: Tuple[int, int] = (1600, 800)
-    sim_width: int = 800                 # left panel width
-    plot_update_every: int = 10          # re-render plots every N frames
-    pause_on_done_frames: int = 0        # optional pause after episode end (0 disables)
-    steps_per_frame: int = 1            # env steps per GUI frame (higher = faster training)
-    steps_per_frame_no_sim: int = 500    # env steps per frame when sim panel hidden
+    sim_width: int = 800
+    plot_update_every: int = 10
+    pause_on_done_frames: int = 0
+    steps_per_frame: int = 1
+    steps_per_frame_no_sim: int = 500
     model_path: str = "best_policy.pt"
     train_episodes: int = 5000
     test_episodes: int = 200
+
+
+if __name__ == "__main__":
+    raise RuntimeError("Run main.py instead.")

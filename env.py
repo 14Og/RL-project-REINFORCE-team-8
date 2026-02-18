@@ -1,21 +1,3 @@
-"""env.py (environment-only)
-
-Environment that owns Robot + Model, but does NOT render anything.
-
-Key idea with your new State dataclass:
-- Robot creates a State with sin/cos + EE position filled.
-- Environment fills State.dist_x / State.dist_y (distance from EE to target).
-- Environment passes the fully populated State to Model.
-
-GUI responsibilities:
-- call env.reset_episode(...) to start a new episode
-- call env.step() each tick (env samples action from model, steps robot, computes reward, trains)
-- call env.get_render_data() to draw robot + target
-- call env.get_metrics() to draw charts (using model.train/model.test arrays)
-
-No pygame/matplotlib here.
-"""
-
 from __future__ import annotations
 
 from typing import Any, Dict, Optional, Tuple
@@ -29,8 +11,6 @@ from state import State
 
 
 class Environment:
-    """Non-graphical RL environment (one tick per step())."""
-
     def __init__(
         self,
         *,
@@ -48,14 +28,12 @@ class Environment:
         self.model = model
         self._rng = np.random.default_rng(seed)
 
-        # reachable annulus for target randomization
         base = np.asarray(robot_cfg.base_xy, dtype=np.float32)
         L1, L2 = float(robot_cfg.link_lengths[0]), float(robot_cfg.link_lengths[1])
         self._base = base
-        self._reach_max = L1 + L2          # outer radius
-        self._reach_min = max(abs(L1 - L2), L1)  # inner radius: at least half a link away from base
+        self._reach_max = L1 + L2
+        self._reach_min = max(abs(L1 - L2), L1)
 
-        # episode state
         self._train_mode: bool = True
         self._needs_reset: bool = True
 
@@ -66,18 +44,14 @@ class Environment:
         self._prev_dist: float = float("nan")
 
         self._last_state: Optional[State] = None
-        self._prev_action = None # a_{t-1}
-        self._curr_action = None # a_t
-
-    # ---------------- core api ----------------
+        self._prev_action = None
+        self._curr_action = None
 
     def reset_episode(self, *, train: bool = True, randomize_theta: bool = True) -> np.ndarray:
-        """Start a new episode. Returns initial observation as np.ndarray (8,)."""
         self._train_mode = bool(train)
 
         self.robot.reset(randomize=randomize_theta)
 
-        # randomize target within reachable workspace
         if self.env_cfg.randomize_target:
             self.target = self._sample_reachable_target()
 
@@ -89,7 +63,6 @@ class Environment:
         if self._train_mode:
             self.model.start_episode()
 
-        # initialize distance for progress reward
         ee = self.robot.end_effector_xy()
         self._prev_dist = float(np.linalg.norm(ee - self.target))
         
@@ -103,7 +76,6 @@ class Environment:
         return np.asarray(st, dtype=np.float32)
 
     def step(self) -> Tuple[np.ndarray, float, bool, Dict[str, Any]]:
-        """Advance ONE tick: sample action -> robot step -> reward -> train."""
         if self._needs_reset:
             obs0 = self.reset_episode(train=self._train_mode, randomize_theta=True)
             return obs0, 0.0, False, {"reset": True}
@@ -116,7 +88,6 @@ class Environment:
         st = self._get_state()
         self._last_state = st
 
-        # Model chooses raw u; Robot applies constraints internally
         if self._train_mode:
             u = self.model.select_action(st, train=True)
         else:
@@ -150,20 +121,17 @@ class Environment:
         self._prev_action = self._curr_action
         return np.asarray(st_next, dtype=np.float32), float(reward), bool(self.done), info
 
-    # ---------------- GUI data access ----------------
-
     def get_render_data(self) -> Dict[str, Any]:
-        """Geometry + minimal status for GUI drawing."""
         joints = self.robot.joints_xy().astype(np.float32)
         ee = joints[-1]
         dist = float(np.linalg.norm(ee - self.target))
 
         return {
-            "joints": joints,  # (3,2): base, elbow, ee
-            "end_effector": ee,  # (2,)
-            "target": self.target.copy(),  # (2,)
+            "joints": joints,
+            "end_effector": ee,
+            "target": self.target.copy(),
             "distance": dist,
-            "theta": self.robot.theta,  # (2,)
+            "theta": self.robot.theta,
             "step": int(self.steps),
             "done": bool(self.done),
             "success": bool(self.success),
@@ -172,27 +140,19 @@ class Environment:
         }
 
     def get_metrics(self) -> Dict[str, Any]:
-        """Metric arrays for GUI plotting."""
         return {
             "train": self.model.get_train_metrics(),
             "test": self.model.get_test_metrics(),
         }
 
-    # ---------------- internals ----------------
-
     def _sample_reachable_target(self) -> np.ndarray:
-        """Uniform random point in the reachable annulus around the robot base."""
         angle = self._rng.uniform(0, 2 * np.pi)
-        # uniform in area: r = sqrt(U * (R_max² - R_min²) + R_min²)
         r_sq = self._rng.uniform(self._reach_min ** 2, self._reach_max ** 2)
         r = np.sqrt(r_sq)
         return self._base + np.array([r * np.cos(angle), r * np.sin(angle)], dtype=np.float32)
 
     def _get_state(self) -> State:
-        """Get State from robot, then extend with dist_x/dist_y."""
         st = self.robot.obs()
-
-        # normalize ee_x, ee_y: center on base, scale by max reach → [-1, 1]
         st.ee_x = (st.ee_x - self._base[0]) / self._reach_max
         st.ee_y = (st.ee_y - self._base[1]) / self._reach_max
 
@@ -216,11 +176,9 @@ class Environment:
         ee = p2
         dist = float(np.linalg.norm(ee - self.target))
 
-        # progress reward 
         progress = float(self._prev_dist - dist)
         reward = float(self.rew_cfg.progress_scale) * progress - float(self.rew_cfg.step_penalty)
         
-        # smoothness penalties
         a_t = self._curr_action
         if a_t is not None and self.rew_cfg.action_l2_scale != 0.0:
             reward -= self.rew_cfg.action_l2_scale * float(np.linalg.norm(a_t, a_t))
@@ -234,7 +192,6 @@ class Environment:
         fail = False
         fail_reason = ""
 
-        # intersection termination
         if self.env_cfg.forbid_link_target_intersection and (not goal_reached):
             r = float(self.env_cfg.target_point_radius)
             d01 = _point_to_segment_distance(self.target, p0, p1)
@@ -257,7 +214,6 @@ class Environment:
             ),
         }
 
-        # termination reward/penalty
         if goal_reached:
             reward += float(self.rew_cfg.goal_reward)
         elif fail:
@@ -270,7 +226,6 @@ class Environment:
 
 
 def _point_to_segment_distance(p: np.ndarray, a: np.ndarray, b: np.ndarray) -> float:
-    """Minimum distance from point p to segment ab (2D)."""
     p = np.asarray(p, dtype=float).reshape(2)
     a = np.asarray(a, dtype=float).reshape(2)
     b = np.asarray(b, dtype=float).reshape(2)
@@ -284,3 +239,7 @@ def _point_to_segment_distance(p: np.ndarray, a: np.ndarray, b: np.ndarray) -> f
     t = max(0.0, min(1.0, t))
     proj = a + t * ab
     return float(np.linalg.norm(p - proj))
+
+
+if __name__ == "__main__":
+    raise RuntimeError("Run main.py instead.")

@@ -1,29 +1,3 @@
-"""model.py
-
-Minimal Model class for a pure REINFORCE exercise (baseline allowed).
-Model outputs raw action u (unbounded). Robot applies its own constraints internally
-
-Typical usage (driven by Environment loop):
-
-  model.start_episode()
-  s = env.reset()
-  while not done:
-      u = model.select_action(s, train=True)  # raw u
-      s_next, r, done, info = env.step(u)
-      model.observe(r)
-      s = s_next
-  model.finish_episode(success=info["success"], final_distance=info["final_distance"])
-
-For testing (also driven externally), just record outcomes:
-  model.record_test_episode(success=..., final_distance=..., steps=...)
-
-State default:
-- obs_dim=8 (Robot obs 6 + Env appends dx,dy to target).
-
-Action default:
-- act_dim=2 (raw u for 2 joints).
-"""
-
 from __future__ import annotations
 
 from state import State
@@ -32,15 +6,12 @@ from config import ModelConfig
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from torch.distributions import Normal
 
 from collections import deque
-from typing import Deque, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Deque, Dict, List, Optional, Tuple, Union
 
 class GaussianMLPPolicy(nn.Module):
-    """Diagonal Gaussian policy with tanh-bounded mean and log-std sigma."""
-
     def __init__(
         self,
         obs_dim: int,
@@ -75,8 +46,6 @@ class GaussianMLPPolicy(nn.Module):
 
 
 class Model:
-    """Pure REINFORCE + moving-average baseline. Stores metrics for train/test."""
-
     def __init__(
         self,
         obs_dim: int,
@@ -106,15 +75,12 @@ class Model:
             self.optimizer, T_max=int(train_episodes), eta_min=float(self.cfg.lr_min)
         )
 
-        # moving-average baseline over recent episode returns (return-to-go from t=0)
         self.baseline_buffer: Deque[float] = deque(maxlen=int(self.cfg.baseline_buf_len))
 
-        # episode buffers
         self._log_probs: List[torch.Tensor] = []
         self._rewards: List[float] = []
         self._steps: int = 0
-        
-        # data for plotting elsewhere (per-episode)
+
         self.train: Dict[str, List[float]] = {
             "total_reward": [],
             "success": [],
@@ -125,14 +91,11 @@ class Model:
             "grad_norm": [],
         }
 
-        # test data (per-episode). compute rates/averages outside
         self.test: Dict[str, List[float]] = {
             "success": [],
             "final_distance": [],
             "steps": [],
         }
-
-    # ---------------- episode api (called by env loop) ----------------
 
     def start_episode(self) -> None:
         self._log_probs.clear()
@@ -140,11 +103,6 @@ class Model:
         self._steps = 0
 
     def select_action(self, state: Union[np.ndarray, State], *, train: bool = True) -> np.ndarray:
-        """Return raw action u.
-
-        If train=True, samples u ~ N(mu, sigma) and records log_prob(u|s).
-        If train=False, returns deterministic mu (no recording).
-        """
         s = self._to_tensor(state)
         mu, sigma = self.policy(s)
         dist = Normal(mu, sigma)
@@ -159,23 +117,19 @@ class Model:
         return mu.squeeze(0).detach().cpu().numpy()
 
     @torch.no_grad()
-    def act(self, state: Union[np.ndarray, Sequence[float]], *, deterministic: bool = True) -> np.ndarray:
-        """Raw action for rendering/animation (no recording)."""
+    def act(self, state: Union[np.ndarray, State], *, deterministic: bool = True) -> np.ndarray:
         s = self._to_tensor(state)
         mu, sigma = self.policy(s)
         u = mu if deterministic else Normal(mu, sigma).sample()
         return u.squeeze(0).cpu().numpy()
 
     def observe(self, reward: float) -> None:
-        """Append per-step reward produced by Environment."""
         self._rewards.append(float(reward))
 
     def finish_episode(self, *, success: bool, final_distance: Optional[float] = None) -> Dict[str, float]:
-        """Run one REINFORCE update and append training metrics."""
         total_reward = float(sum(self._rewards))
         baseline = float(np.mean(self.baseline_buffer)) if self.baseline_buffer else 0.0
 
-        # if no steps were taken, just log
         if not self._rewards or not self._log_probs:
             metrics = {
                 "total_reward": total_reward,
@@ -189,14 +143,11 @@ class Model:
             self._append_train(metrics)
             return metrics
 
-        returns = self._discounted_returns(self._rewards, self.cfg.gamma).to(self.device)  # (T,)
+        returns = self._discounted_returns(self._rewards, self.cfg.gamma).to(self.device)
         episode_return = float(returns[0].item())
 
-        advantages = returns - baseline  # baseline-only
-        # normalise advantages for variance reduction
-        # if advantages.numel() > 1:
-        #     advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
-        logps = torch.stack(self._log_probs).to(self.device)  # (T,)
+        advantages = returns - baseline
+        logps = torch.stack(self._log_probs).to(self.device)
 
         loss = -(logps * advantages).mean()
 
@@ -206,7 +157,6 @@ class Model:
         self.optimizer.step()
         self.scheduler.step()
 
-        # update baseline after update
         self.baseline_buffer.append(episode_return)
 
         metrics = {
@@ -221,23 +171,16 @@ class Model:
         self._append_train(metrics)
         return metrics
 
-    # ---------------- test data recording (no loops) ----------------
-
     def record_test_episode(self, *, success: bool, final_distance: float, steps: int) -> None:
-        """Call this from your external test/animation loop."""
         self.test["success"].append(float(bool(success)))
         self.test["final_distance"].append(float(final_distance))
         self.test["steps"].append(float(steps))
-
-    # ---------------- data accessors ----------------
 
     def get_train_metrics(self) -> Dict[str, List[float]]:
         return self.train
 
     def get_test_metrics(self) -> Dict[str, List[float]]:
         return self.test
-
-    # ---------------- internals ----------------
 
     def _append_train(self, m: Dict[str, float]) -> None:
         for k in self.train.keys():
@@ -258,10 +201,7 @@ class Model:
         out.reverse()
         return torch.tensor(out, dtype=torch.float32)
 
-    # ---------------- persistence ----------------
-
     def save(self, path: str, *, include_optimizer: bool = False, include_metrics: bool = False) -> None:
-        """Save policy (and optionally optimizer + metrics) to a .pt file."""
         ckpt = {
             "policy_state_dict": self.policy.state_dict(),
         }
@@ -274,7 +214,6 @@ class Model:
         torch.save(ckpt, path)
 
     def load(self, path: str, *, load_optimizer: bool = False, strict: bool = True) -> None:
-        """Load policy weights from a .pt file."""
         ckpt = torch.load(path, map_location=self.device)
         if "policy_state_dict" not in ckpt:
             raise ValueError("Checkpoint missing 'policy_state_dict'.")
@@ -283,10 +222,12 @@ class Model:
             self.optimizer.load_state_dict(ckpt["optimizer_state_dict"])
 
     def set_train_mode(self) -> None:
-        """Put policy module into train() mode."""
         self.policy.train()
 
     def set_eval_mode(self) -> None:
-        """Put policy module into eval() mode."""
         self.policy.eval()
+
+
+if __name__ == "__main__":
+    raise RuntimeError("Run main.py instead.")
 

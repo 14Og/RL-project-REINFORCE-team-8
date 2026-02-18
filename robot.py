@@ -8,23 +8,6 @@ from dataclasses import dataclass
 from typing import Optional, Tuple
 
 class Robot:
-    """2dof planar arm robot model.
-
-    state:  theta = [theta1, theta2] in radians
-    action: dtheta = [dtheta1, dtheta2] in radians
-
-    getters:
-      - theta: return current joint positions
-      - joints_xy -> (3,2) array: base, elbow, end-effector
-      - end_effector_xy()
-      - obs() -> [sin(th1), cos(th1), sin(th2), cos(th2), x_ee, y_ee]
-
-    setters:
-      - reset()
-      - set_theta()
-      - step(dtheta): adds increments to current state
-    """
-
     def __init__(self, cfg: RobotConfig, seed: int = 42, theta: Optional[np.ndarray] = None):
         self.cfg = cfg
         self.rng = np.random.default_rng(seed)
@@ -36,18 +19,12 @@ class Robot:
         if theta is not None:
             self.set_theta(theta)
 
-    # -------- getters --------
     @property
     def theta(self) -> np.ndarray:
         """joint angles [theta1, theta2] (copy), radians."""
         return self._theta.copy()
 
     def joints_xy(self) -> np.ndarray:
-        """forward kinematics points: base, elbow, end-effector. shape: (3, 2).
-
-        coordinates are standard cartesian (y up).
-        (your gui can convert to screen coords if needed.)
-        """
         t1, t2 = float(self._theta[0]), float(self._theta[1])
         p0 = self.base
         p1 = p0 + np.array([self.L1 * math.cos(t1), self.L1 * math.sin(t1)], dtype=float)
@@ -55,7 +32,6 @@ class Robot:
         return np.stack([p0, p1, p2], axis=0)
 
     def end_effector_xy(self) -> np.ndarray:
-        """end-effector position [x, y]."""
         return self.joints_xy()[-1]
 
     def obs(self, dtype=np.float32) -> State:
@@ -73,7 +49,6 @@ class Robot:
             ee_y=ee[1],
         )
 
-    # -------- setters / control --------
     def reset(self, randomize: bool = True) -> np.ndarray:
         """reset robot angles. returns obs()."""
         if randomize:
@@ -93,10 +68,7 @@ class Robot:
         self._theta = theta
 
     def step(self, dtheta: np.ndarray) -> Tuple[State, np.ndarray]:
-        """control step: add dtheta to current angles. returns obs()."""
         dtheta = np.asarray(dtheta, dtype=float).reshape(2)
-
-        # clipping theta if config has this parameter
         if self.cfg.dtheta_max is not None:
             dtheta = self.clip_dtheta(dtheta, self.cfg.dtheta_max)
 
@@ -105,18 +77,16 @@ class Robot:
         if self.cfg.wrap_angles:
             self._theta = np.array([self.wrap_angle(t) for t in self._theta], dtype=float)
 
-        return self.obs(), dtheta # clipped dtheta with tanh
+        return self.obs(), dtheta
 
     @staticmethod
     def wrap_angle(theta: float) -> float:
-        """wrap to (-pi, pi] for numerical stability."""
         return (theta + math.pi) % (2 * math.pi) - math.pi
 
     @staticmethod
     def clip_dtheta(dtheta: float, max_dtheta: float) -> float:
-        """Hard-clip action to [-max_dtheta, max_dtheta]."""
         return np.clip(dtheta, -max_dtheta, max_dtheta)
 
 
 if __name__ == "__main__":
-    raise NotImplementedError("This is a project module, not executable script")
+    raise RuntimeError("Run main.py instead.")
