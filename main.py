@@ -1,7 +1,7 @@
 import argparse as ap
 
-from config import RobotConfig, EnvConfig, RewardConfig, GUIConfig, ModelConfig
-from gui import GUI
+from reinforce.config import RobotConfig, EnvConfig, RewardConfig, GUIConfig, ModelConfig
+from reinforce.gui import GUI
 
 def parse_args() -> ap.Namespace:
     p = ap.ArgumentParser()
@@ -13,6 +13,9 @@ def parse_args() -> ap.Namespace:
 
     p.add_argument(
         "--no-sim", action="store_true", help="(train only) Hide simulation panel; show plots only."
+    )
+    p.add_argument(
+        "--extended", action="store_true", help="(train --no-sim only) Show all 7 training metrics."
     )
     p.add_argument("--model-path", type=str, default=None)
     p.add_argument("--train-episodes", type=int, default=None)
@@ -37,6 +40,7 @@ def main() -> None:
 
     start_mode = "train" if args.train else "test"
     no_sim_train = bool(args.no_sim) if args.train else False
+    extended = bool(args.extended) if (args.train and args.no_sim) else False
 
     app = GUI(
         gui_cfg=gui_cfg,
@@ -47,6 +51,7 @@ def main() -> None:
         seed=int(args.seed),
         start_mode=start_mode,
         no_sim_train=no_sim_train,
+        extended=extended,
     )
     app.run()
 
