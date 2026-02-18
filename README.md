@@ -73,11 +73,11 @@ We use the **REINFORCE** (Monte-Carlo policy gradient) algorithm. The core idea:
 
 The objective is to maximize the expected return:
 
-$$J(\theta) = \mathbb{E}_{\tau \sim \pi_\theta} \left[ \sum_{t=0}^{T} \gamma^t\, r_t \right]$$
+$$J(\theta) = \mathbb{E}_{\tau \sim \pi_\theta} \left[ \sum_{t=0}^{T} \gamma^t\ \cdot r_t \right]$$
 
 The gradient of this objective is:
 
-$$\nabla_\theta J(\theta) = \mathbb{E}_{\tau \sim \pi_\theta} \left[ \sum_{t=0}^{T} \nabla_\theta \log \pi_\theta(a_t \mid s_t) \cdot G_t \right]$$
+$$\nabla_\theta J(\theta) = \mathbb{E}_{\tau \sim \pi_\theta} \left[ \sum_{t=0}^{T} \nabla_\theta \log \pi_\theta(A_t \mid S_t) \cdot G_t \right]$$
 
 where $G_t = \sum_{k=t}^{T} \gamma^{k-t} r_k$ is the discounted return from step $t$.
 
@@ -106,9 +106,9 @@ where $z$ is the output of a shared MLP trunk. The $\tanh$ on the mean ensures i
 After each episode:
 
 1. Compute discounted returns $G_t$ for every step.
-2. Compute advantages: $A_t = G_t - b$.
+2. Compute advantages: $G_t - b$.
 3. Compute the loss:
-$$\mathcal{L} = -\frac{1}{T} \sum_{t=0}^{T} \log \pi_\theta(a_t \mid s_t) \cdot A_t$$
+$$\mathcal{L} = -\frac{1}{T} \sum_{t=0}^{T} \log \pi_\theta(a_t \mid s_t) \cdot (G_t - b)$$
 4. Backpropagate and update $\theta$ with Adam (gradient norm clipped to 1.0).
 5. Step the cosine-annealing learning rate scheduler.
 6. Append $G_0$ to the baseline buffer.
