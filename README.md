@@ -28,12 +28,12 @@ The environment is **deterministic**: given the same state and action, the next 
 
 An 8-dimensional real-valued vector:
 
-$$s_t = \bigl(\sin\theta_1, \cos\theta_1, \sin\theta_2, \cos\theta_2, \hat{x}_{ee}, \hat{y}_{ee}, \Delta x, \Delta y\bigr)$$
+$$s_t = \bigl(\sin\theta_1, \cos\theta_1, \sin\theta_2, \cos\theta_2, x_{ee}, y_{ee}, \Delta x, \Delta y\bigr)$$
 
 | Feature | Description |
 |---|---|
 | $\sin\theta_i, \cos\theta_i$ | Trigonometric encoding of joint angles avoids the $-\pi/\pi$ discontinuity that raw angles introduce |
-| $\hat{x}_{ee}$ $\hat{y}_{ee}$ | End-effector position centered on the base and normalized by the maximum reach |
+| $x_{ee}$ $y_{ee}$ | End-effector position centered on the base and normalized by the maximum reach |
 | $\Delta x, \Delta y$ | Signed distance from end-effector to target, normalized by a scale factor (300) |
 
 ### Action Space
