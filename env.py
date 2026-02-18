@@ -18,7 +18,6 @@ No pygame/matplotlib here.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
@@ -105,14 +104,9 @@ class Environment:
 
     def step(self) -> Tuple[np.ndarray, float, bool, Dict[str, Any]]:
         """Advance ONE tick: sample action -> robot step -> reward -> train."""
-        if self._needs_reset and self.env_cfg.auto_reset:
+        if self._needs_reset:
             obs0 = self.reset_episode(train=self._train_mode, randomize_theta=True)
             return obs0, 0.0, False, {"reset": True}
-
-        if self._needs_reset:
-            # GUI must call reset_episode()
-            st = self._get_state()
-            return np.asarray(st, dtype=np.float32), 0.0, True, {"needs_reset": True}
 
         if self.done:
             self._needs_reset = True

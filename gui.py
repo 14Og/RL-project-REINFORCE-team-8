@@ -19,8 +19,6 @@ This file intentionally keeps env/model/robot free of any pygame/matplotlib deps
 
 from __future__ import annotations
 
-import argparse
-from dataclasses import dataclass
 from typing import Optional, Tuple, Dict, Any
 
 import numpy as np
@@ -29,7 +27,7 @@ import pygame
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 
-from config import RobotConfig, EnvConfig, RewardConfig, GUIConfig
+from config import RobotConfig, EnvConfig, RewardConfig, GUIConfig, ModelConfig
 from env import Environment
 from model import Model
 
@@ -152,7 +150,7 @@ class PlotPanel:
         return ma
 
 
-class GUIApp:
+class GUI:
     def __init__(
         self,
         *,
@@ -160,6 +158,7 @@ class GUIApp:
         robot_cfg: RobotConfig,
         env_cfg: EnvConfig,
         reward_cfg: RewardConfig,
+        model_cfg: ModelConfig,
         seed: int = 42,
         start_mode: str = "train",
         no_sim_train: bool = False,
@@ -168,6 +167,7 @@ class GUIApp:
         self.robot_cfg = robot_cfg
         self.env_cfg = env_cfg
         self.rew_cfg = reward_cfg
+        self.model_cfg = model_cfg
         self.seed = seed
 
         self.mode: str = start_mode
@@ -191,7 +191,13 @@ class GUIApp:
         self.plot_panel = PlotPanel((plot_w, plot_h), update_every=self.cfg.plot_update_every)
 
     def _make_env(self, *, train: bool, load_model: bool) -> Environment:
-        model = Model(obs_dim=8, act_dim=2, action_limit=self.robot_cfg.dtheta_max)
+        model = Model(
+            obs_dim=8,
+            act_dim=2,
+            cfg=self.model_cfg,
+            action_limit=self.robot_cfg.dtheta_max,
+            train_episodes=self.cfg.train_episodes,
+        )
         if load_model:
             model.load(self.cfg.model_path, load_optimizer=False)
             model.set_eval_mode()
@@ -322,10 +328,8 @@ class GUIApp:
             win = min(self.plot_panel.win, len(s))
             s_rate = sum(s[-win:]) / win if s else 0
             hud = (
-                f"mode={self.mode}  ep={self.episode_count}  step={render['step']}  dist={render['distance']:.1f}" \
-                + (f"succcess={s_rate:.3f}"
-                if self.mode == "train"
-                else "")
+                f"mode={self.mode}  ep={self.episode_count}  step={render['step']}  dist={render['distance']:.1f}"
+                + (f"succcess={s_rate:.3f}" if self.mode == "train" else "")
             )
             txt = font.render(hud, True, (20, 20, 20))
             self.screen.blit(txt, (10, 10))
@@ -353,53 +357,3 @@ class GUIApp:
         tx, ty = int(target[0] + ox), int(target[1] + oy)
         pygame.draw.circle(screen, (220, 50, 50), (tx, ty), 6)
         pygame.draw.circle(screen, (220, 50, 50), (tx, ty), int(self.env_cfg.target_thresh), 1)
-
-
-def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser()
-    g = p.add_mutually_exclusive_group(required=True)
-    g.add_argument("--train", action="store_true", help="Train policy, save, then run test.")
-    g.add_argument(
-        "--test", action="store_true", help="Run test only (loads model from --model-path)."
-    )
-
-    p.add_argument(
-        "--no-sim", action="store_true", help="(train only) Hide simulation panel; show plots only."
-    )
-    p.add_argument("--model-path", type=str, default=None)
-    p.add_argument("--train-episodes", type=int, default=None)
-    p.add_argument("--test-episodes", type=int, default=None)
-    p.add_argument("--seed", type=int, default=42)
-    return p.parse_args()
-
-
-def main() -> None:
-
-    args = parse_args()
-
-    robot_cfg = RobotConfig()
-    env_cfg = EnvConfig()
-    rew_cfg = RewardConfig()
-    gui_cfg = GUIConfig()
-
-    gui_cfg.train_episodes = args.train_episodes or gui_cfg.train_episodes
-    gui_cfg.test_episodes = args.test_episodes or gui_cfg.test_episodes
-    gui_cfg.model_path = args.model_path or gui_cfg.model_path
-
-    start_mode = "train" if args.train else "test"
-    no_sim_train = bool(args.no_sim) if args.train else False
-
-    app = GUIApp(
-        gui_cfg=gui_cfg,
-        robot_cfg=robot_cfg,
-        env_cfg=env_cfg,
-        reward_cfg=rew_cfg,
-        seed=int(args.seed),
-        start_mode=start_mode,
-        no_sim_train=no_sim_train,
-    )
-    app.run()
-
-
-if __name__ == "__main__":
-    main()

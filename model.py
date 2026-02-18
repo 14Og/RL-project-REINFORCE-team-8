@@ -27,6 +27,7 @@ Action default:
 from __future__ import annotations
 
 from state import State
+from config import ModelConfig
 
 import numpy as np
 import torch
@@ -44,25 +45,21 @@ class GaussianMLPPolicy(nn.Module):
         self,
         obs_dim: int,
         act_dim: int,
-        hidden_sizes: Tuple[int, ...] = (128, 128),
-        action_limit: float = 0.1,
-        log_std_min: float = -3.0,
-        log_std_max: float = -0.5,
+        cfg: ModelConfig,
+        action_limit: float,
     ) -> None:
         super().__init__()
+        self.cfg = cfg
         layers: list[nn.Module] = []
         in_dim = obs_dim
-        for h in hidden_sizes:
+        for h in self.cfg.hidden_sizes:
             layers.append(nn.Linear(in_dim, h))
             layers.append(nn.ReLU())
             in_dim = h
         self.net = nn.Sequential(*layers)
         self.mu_head = nn.Linear(in_dim, act_dim)
         self.log_std_head = nn.Linear(in_dim, act_dim)
-
         self.action_limit = float(action_limit)
-        self.log_std_min = float(log_std_min)
-        self.log_std_max = float(log_std_max)
 
         nn.init.zeros_(self.mu_head.weight)
         nn.init.zeros_(self.mu_head.bias)
@@ -72,7 +69,7 @@ class GaussianMLPPolicy(nn.Module):
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         z = self.net(x)
         mu = torch.tanh(self.mu_head(z)) * self.action_limit
-        log_std = torch.clamp(self.log_std_head(z), self.log_std_min, self.log_std_max)
+        log_std = torch.clamp(self.log_std_head(z), self.cfg.log_std_min, self.cfg.log_std_max)
         sigma = torch.exp(log_std) * self.action_limit
         return mu, sigma
 
@@ -82,46 +79,35 @@ class Model:
 
     def __init__(
         self,
-        obs_dim: int = 8,
-        act_dim: int = 2,
-        gamma: float = 0.99,
-        lr: float = 1e-4,
-        lr_min: float = 1e-5,
-        total_episodes: int = 5000,
-        baseline_window: int = 200,
-        grad_clip_norm: float = 1.0,
-        device: Optional[str] = None,
+        obs_dim: int,
+        act_dim: int,
+        cfg: ModelConfig,
+        action_limit: float,
+        train_episodes: int,
         policy: Optional[nn.Module] = None,
-        # used only if policy is None
-        hidden_sizes: Tuple[int, ...] = (128, 128),
-        action_limit: float = 0.1,
-        log_std_min: float = -3.0,
-        log_std_max: float = -0.5,
+        device: Optional[str] = None,
     ) -> None:
-        if not (0.0 < gamma <= 1.0):
+        self.cfg = cfg
+        if not (0.0 < self.cfg.gamma <= 1.0):
             raise ValueError("gamma must be in (0, 1].")
-
-        self.gamma = float(gamma)
-        self.grad_clip_norm = float(grad_clip_norm)
+        
         self.device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
 
         if policy is None:
             policy = GaussianMLPPolicy(
                 obs_dim=obs_dim,
                 act_dim=act_dim,
-                hidden_sizes=hidden_sizes,
-                action_limit=action_limit,
-                log_std_min=log_std_min,
-                log_std_max=log_std_max,
+                cfg=self.cfg,
+                action_limit=action_limit
             )
         self.policy = policy.to(self.device)
-        self.optimizer = torch.optim.Adam(self.policy.parameters(), lr=float(lr))
+        self.optimizer = torch.optim.Adam(self.policy.parameters(), lr=float(self.cfg.lr_start))
         self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            self.optimizer, T_max=int(total_episodes), eta_min=float(lr_min)
+            self.optimizer, T_max=int(train_episodes), eta_min=float(self.cfg.lr_min)
         )
 
         # moving-average baseline over recent episode returns (return-to-go from t=0)
-        self.baseline_buffer: Deque[float] = deque(maxlen=int(baseline_window))
+        self.baseline_buffer: Deque[float] = deque(maxlen=int(self.cfg.baseline_buf_len))
 
         # episode buffers
         self._log_probs: List[torch.Tensor] = []
@@ -203,7 +189,7 @@ class Model:
             self._append_train(metrics)
             return metrics
 
-        returns = self._discounted_returns(self._rewards, self.gamma).to(self.device)  # (T,)
+        returns = self._discounted_returns(self._rewards, self.cfg.gamma).to(self.device)  # (T,)
         episode_return = float(returns[0].item())
 
         advantages = returns - baseline  # baseline-only
@@ -216,7 +202,7 @@ class Model:
 
         self.optimizer.zero_grad(set_to_none=True)
         loss.backward()
-        grad_norm = torch.nn.utils.clip_grad_norm_(self.policy.parameters(), self.grad_clip_norm)
+        grad_norm = torch.nn.utils.clip_grad_norm_(self.policy.parameters(), self.cfg.grad_clip_norm)
         self.optimizer.step()
         self.scheduler.step()
 

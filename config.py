@@ -14,6 +14,17 @@ class RobotConfig:
     dtheta_max: Optional[float] = 0.1  # if set, action will be clipped per joint
 
 @dataclass
+class ModelConfig:
+    gamma: float = 0.99
+    lr_start: float = 1e-4
+    lr_min: float = 1e-5
+    baseline_buf_len: int = 200
+    grad_clip_norm: float = 1.0
+    hidden_sizes: Tuple[int, ...] = (128, 128)
+    log_std_min: float = -3.0
+    log_std_max: float = -0.5
+
+@dataclass
 class RewardConfig:
     """Reward coefficients"""
 
@@ -39,7 +50,7 @@ class EnvConfig:
     # Termination
     target_thresh: float = 30.0
     max_steps: int = 200
-
+    
     # Constraints / failure conditions
     forbid_link_target_intersection: bool = True
     target_point_radius: float = 1.0   # distance threshold from target point to a link segment
@@ -49,9 +60,6 @@ class EnvConfig:
     use_abs_dist: bool = False
     normalize_dist: bool = True
     dist_scale: float = 300.0
-
-    # Reset behavior
-    auto_reset: bool = True
     
 @dataclass
 class GUIConfig:
