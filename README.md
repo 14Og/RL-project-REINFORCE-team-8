@@ -28,12 +28,12 @@ The environment is **deterministic**: given the same state and action, the next 
 
 An 8-dimensional real-valued vector:
 
-$$s_t = \bigl(\sin\theta_1,\; \cos\theta_1,\; \sin\theta_2,\; \cos\theta_2,\; \hat{x}_{ee},\; \hat{y}_{ee},\; \Delta x,\; \Delta y\bigr)$$
+$$s_t = \bigl(\sin\theta_1, \cos\theta_1, \sin\theta_2, \cos\theta_2, \hat{x}_{ee}, \hat{y}_{ee}, \Delta x, \Delta y\bigr)$$
 
 | Feature | Description |
 |---|---|
 | $\sin\theta_i, \cos\theta_i$ | Trigonometric encoding of joint angles avoids the $-\pi/\pi$ discontinuity that raw angles introduce |
-| $\hat{x}_{ee}, \hat{y}_{ee}$ | End-effector position centered on the base and normalized by the maximum reach |
+| $\hat{x}_{ee}$ $\hat{y}_{ee}$ | End-effector position centered on the base and normalized by the maximum reach |
 | $\Delta x, \Delta y$ | Signed distance from end-effector to target, normalized by a scale factor (300) |
 
 ### Action Space
@@ -97,7 +97,7 @@ The policy network outputs parameters of a diagonal Gaussian distribution:
 
 $$\mu = \tanh(\text{head}_\mu(z)) \cdot \Delta\theta_{\max}$$
 
-$$\sigma = \exp\bigl(\text{clamp}(\text{head}_\sigma(z),\; \log\sigma_{\min},\; \log\sigma_{\max})\bigr) \cdot \Delta\theta_{\max}$$
+$$\sigma = \exp\bigl(\text{clamp}(\text{head}_\sigma(z), \log\sigma_{\min}, \log\sigma_{\max})\bigr) \cdot \Delta\theta_{\max}$$
 
 where $z$ is the output of a shared MLP trunk. The $\tanh$ on the mean ensures it stays within the physical action bounds. Standard deviation is clamped in log-space to $[-3.0, -0.5]$ to prevent collapse or explosion.
 
@@ -119,7 +119,7 @@ $$\mathcal{L} = -\frac{1}{T} \sum_{t=0}^{T} \log \pi_\theta(a_t \mid s_t) \cdot 
 
 ### Iteration 1 — Feasibility Check
 
-We started with an external neural network framework to verify that the task is solvable at all: a fixed start position, a fixed target, and a **discrete** action space. The agent learned to reach the target reliably, confirming that the problem is well-posed and the reward signal is informative enough for learning.
+We started with a simple program to verify that the task is solvable at all: a fixed start position, a fixed target, and a **discrete** action space. The agent learned to reach the target reliably, confirming that the problem is well-posed and the reward signal is informative enough for learning.
 
 ### Iteration 2 — Custom REINFORCE with Discrete Actions
 
