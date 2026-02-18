@@ -1,7 +1,7 @@
 import argparse as ap
 
-from config import RobotConfig, EnvConfig, RewardConfig, GUIConfig, ModelConfig
-from gui import GUI
+from reinforce.config import RobotConfig, EnvConfig, RewardConfig, GUIConfig, ModelConfig
+from reinforce.gui import GUI
 
 def parse_args() -> ap.Namespace:
     p = ap.ArgumentParser()
