@@ -24,17 +24,31 @@ class PlotPanel:
 
         self.fig = Figure(figsize=(self.w / 100.0, self.h / 100.0), dpi=100)
         self.canvas = FigureCanvas(self.fig)
+        self._create_axes()
+        self.fig.tight_layout(pad=1.0)
 
+    def _create_axes(self) -> None:
         self.ax1 = self.fig.add_subplot(311)
         self.ax2 = self.fig.add_subplot(312)
         self.ax3 = self.fig.add_subplot(313)
-        self.fig.tight_layout(pad=1.0)
 
     def render(self, metrics: Dict[str, Any], mode: str) -> pygame.Surface:
         self._frame += 1
         if self.surface is not None and (self._frame % self.update_every) != 0:
             return self.surface
 
+        self._draw(metrics, mode)
+
+        self.fig.tight_layout(pad=1.0)
+        self.canvas.draw()
+
+        rgba = np.asarray(self.canvas.buffer_rgba())
+        rgb = rgba[..., :3]
+        surf = pygame.surfarray.make_surface(np.transpose(np.ascontiguousarray(rgb), (1, 0, 2)))
+        self.surface = surf
+        return surf
+
+    def _draw(self, metrics: Dict[str, Any], mode: str) -> None:
         self.ax1.clear()
         self.ax2.clear()
         self.ax3.clear()
@@ -46,8 +60,8 @@ class PlotPanel:
             steps = np.asarray(train["steps"], dtype=np.float32)
 
             if r.size:
-                self.ax1.plot(*self._downsample(r), alpha=0.3, linewidth=0.5)
-                self.ax1.plot(*self._downsample(self._running_mean(r, 10)), linewidth=2)
+                self.ax1.plot(*self._downsample(r), alpha=0.3, linewidth=0.5, color="#2196F3")
+                self.ax1.plot(*self._downsample(self._running_mean(r, 10)), linewidth=2, color="#1565C0")
             self.ax1.set_title("train: total_reward (ma=10)")
             self.ax1.grid(True, alpha=0.3)
 
@@ -59,19 +73,19 @@ class PlotPanel:
                 )
                 if s.size > self.win:
                     ma[self.win :] = (cs[self.win :] - cs[: -self.win]) / self.win
-                self.ax2.plot(*self._downsample(ma), linewidth=2)
+                self.ax2.plot(*self._downsample(ma), linewidth=2, color="#4CAF50")
 
             self.ax2.set_ylim(-0.05, 1.05)
             self.ax2.set_title(f"train: success rate (window={self.win})")
             self.ax2.grid(True, alpha=0.3)
 
             if steps.size:
-                self.ax3.plot(*self._downsample(steps), alpha=0.3, linewidth=0.5)
-                self.ax3.plot(*self._downsample(self._running_mean(steps, 10)), linewidth=2)
+                self.ax3.plot(*self._downsample(steps), alpha=0.3, linewidth=0.5, color="#FF9800")
+                self.ax3.plot(*self._downsample(self._running_mean(steps, 10)), linewidth=2, color="#E65100")
             self.ax3.set_title("train: steps/episode (ma=10)")
             self.ax3.grid(True, alpha=0.3)
 
-        else:  # test
+        else:
             test = metrics["test"]
             s = np.asarray(test["success"], dtype=np.float32)
             dist = np.asarray(test["final_distance"], dtype=np.float32)
@@ -79,33 +93,24 @@ class PlotPanel:
 
             if s.size:
                 csr = np.cumsum(s) / np.arange(1, s.size + 1, dtype=np.float32)
-                self.ax1.plot(csr, linewidth=2)
+                self.ax1.plot(csr, linewidth=2, color="#4CAF50")
                 self.ax1.set_ylim(-0.05, 1.05)
             self.ax1.set_title("test: cumulative success rate")
             self.ax1.grid(True, alpha=0.3)
 
             if dist.size:
-                self.ax2.plot(dist)
+                self.ax2.plot(dist, color="#F44336")
                 self.ax2.set_title(f"test: final_distance (avg={float(dist.mean()):.2f})")
             else:
                 self.ax2.set_title("test: final_distance")
             self.ax2.grid(True, alpha=0.3)
 
             if steps.size:
-                self.ax3.plot(steps)
+                self.ax3.plot(steps, color="#FF9800")
                 self.ax3.set_title(f"test: steps (avg={float(steps.mean()):.1f})")
             else:
                 self.ax3.set_title("test: steps")
             self.ax3.grid(True, alpha=0.3)
-
-        self.fig.tight_layout(pad=1.0)
-        self.canvas.draw()
-
-        rgba = np.asarray(self.canvas.buffer_rgba())  # (h, w, 4)
-        rgb = rgba[..., :3]
-        surf = pygame.surfarray.make_surface(np.transpose(np.ascontiguousarray(rgb), (1, 0, 2)))
-        self.surface = surf
-        return surf
 
     def _downsample(self, arr: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         n = arr.shape[0]
@@ -124,6 +129,63 @@ class PlotPanel:
         return ma
 
 
+class ExtendedPlotPanel(PlotPanel):
+    def _create_axes(self) -> None:
+        import matplotlib.gridspec as gridspec
+
+        gs = gridspec.GridSpec(4, 2, height_ratios=[1, 1, 1, 1.2])
+        self.axes = [
+            self.fig.add_subplot(gs[0, 0]),
+            self.fig.add_subplot(gs[0, 1]),
+            self.fig.add_subplot(gs[1, 0]),
+            self.fig.add_subplot(gs[1, 1]),
+            self.fig.add_subplot(gs[2, 0]),
+            self.fig.add_subplot(gs[2, 1]),
+            self.fig.add_subplot(gs[3, :]),
+        ]
+
+    def _draw(self, metrics: Dict[str, Any], mode: str) -> None:
+        for ax in self.axes:
+            ax.clear()
+
+        if mode != "train":
+            return
+
+        train = metrics["train"]
+        specs = [
+            ("total_reward", "total reward (ma=10)", True, "#2196F3", "#1565C0"),
+            ("steps", "steps/episode (ma=10)", True, "#FF9800", "#E65100"),
+            ("final_distance", "final distance (ma=10)", True, "#F44336", "#B71C1C"),
+            ("loss", "policy loss (ma=10)", True, "#9C27B0", "#6A1B9A"),
+            ("baseline", "baseline", False, "#00838F", "#00838F"),
+            ("grad_norm", "grad norm (ma=10)", True, "#795548", "#4E342E"),
+            ("success", f"success rate (window)={self.win}", False, "#4CAF50", "#4CAF50"),
+        ]
+
+        for ax, (key, title, use_ma, c_raw, c_ma) in zip(self.axes, specs):
+            arr = np.asarray(train[key], dtype=np.float32)
+            if key == "success":
+                if arr.size:
+                    cs = np.cumsum(arr)
+                    ma = np.empty_like(cs)
+                    ma[: self.win] = cs[: self.win] / np.arange(
+                        1, min(self.win, arr.size) + 1, dtype=np.float32
+                    )
+                    if arr.size > self.win:
+                        ma[self.win :] = (cs[self.win :] - cs[: -self.win]) / self.win
+                    ax.plot(*self._downsample(ma), linewidth=2, color=c_ma)
+                ax.set_ylim(-0.05, 1.05)
+            elif arr.size:
+                if use_ma:
+                    ax.plot(*self._downsample(arr), alpha=0.3, linewidth=0.5, color=c_raw)
+                    ax.plot(*self._downsample(self._running_mean(arr, 10)), linewidth=2, color=c_ma)
+                else:
+                    ax.plot(*self._downsample(arr), linewidth=1.5, color=c_raw)
+            ax.set_title(title, fontsize=8)
+            ax.grid(True, alpha=0.3)
+            ax.tick_params(labelsize=6)
+
+
 class GUI:
     def __init__(
         self,
@@ -136,6 +198,7 @@ class GUI:
         seed: int = 42,
         start_mode: str = "train",
         no_sim_train: bool = False,
+        extended: bool = False,
     ) -> None:
         self.cfg = gui_cfg
         self.robot_cfg = robot_cfg
@@ -143,6 +206,7 @@ class GUI:
         self.rew_cfg = reward_cfg
         self.model_cfg = model_cfg
         self.seed = seed
+        self.extended = bool(extended)
 
         self.mode: str = start_mode
         self.no_sim_train = bool(no_sim_train)
@@ -161,7 +225,12 @@ class GUI:
         sim_w = 0 if (self.mode == "train" and self.no_sim_train) else self.cfg.sim_width
         plot_w = self.cfg.window_size[0] - sim_w
         plot_h = self.cfg.window_size[1]
-        self.plot_panel = PlotPanel((plot_w, plot_h), update_every=self.cfg.plot_update_every)
+        self.plot_panel = self._make_plot_panel(plot_w, plot_h)
+
+    def _make_plot_panel(self, w: int, h: int) -> PlotPanel:
+        if self.extended and self.no_sim_train and self.mode == "train":
+            return ExtendedPlotPanel((w, h), update_every=self.cfg.plot_update_every)
+        return PlotPanel((w, h), update_every=self.cfg.plot_update_every)
 
     def _make_env(self, *, train: bool, load_model: bool) -> Environment:
         model = Model(
@@ -199,7 +268,7 @@ class GUI:
         sim_w = self.cfg.sim_width
         plot_w = self.cfg.window_size[0] - sim_w
         plot_h = self.cfg.window_size[1]
-        self.plot_panel = PlotPanel((plot_w, plot_h), update_every=self.cfg.plot_update_every)
+        self.plot_panel = self._make_plot_panel(plot_w, plot_h)
 
     def run(self) -> None:
         pygame.init()
@@ -231,8 +300,6 @@ class GUI:
                     if (self.mode == "train" and self.no_sim_train)
                     else self.cfg.steps_per_frame
                 )
-                if self.mode == "test":
-                    spf = 1
 
                 for _ in range(spf):
                     for event in pygame.event.get():
@@ -265,6 +332,9 @@ class GUI:
 
             elif self.pause_frames_left > 0:
                 self.pause_frames_left -= 1
+
+            if not running:
+                continue
 
             self.screen.fill((245, 245, 245))
 
@@ -301,6 +371,8 @@ class GUI:
             if self.mode == "test":
                 self.clock.tick(10)
 
+        import matplotlib.pyplot as plt
+        plt.close(self.plot_panel.fig)
         pygame.quit()
 
     def _draw_robot(

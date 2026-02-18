@@ -30,7 +30,7 @@ class RewardConfig:
 
 @dataclass
 class EnvConfig:
-    target_xy: Tuple[float, float] = (100, 300.0)
+    target_xy: Tuple[float, float] = (250, 300.0)
     randomize_target: bool = True
     target_thresh: float = 30.0
     max_steps: int = 200
@@ -46,7 +46,7 @@ class GUIConfig:
     sim_width: int = 800
     plot_update_every: int = 10
     pause_on_done_frames: int = 0
-    steps_per_frame: int = 1
+    steps_per_frame: int = 10
     steps_per_frame_no_sim: int = 500
     model_path: str = "policy/best_policy.pt"
     train_episodes: int = 5000

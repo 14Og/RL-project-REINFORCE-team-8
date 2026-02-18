@@ -97,7 +97,7 @@ The policy network outputs parameters of a diagonal Gaussian distribution:
 
 $$\mu = \tanh(\text{head}_\mu(z)) \cdot \Delta\theta_{\max}$$
 
-$$\sigma = \exp\bigl(\text{clamp}(\text{head}_\sigma(z), \log\sigma_{\min}, \log\sigma_{\max})\bigr) \cdot \Delta\theta_{\max}$$
+$$\sigma = \exp\bigl(\text{clamp}(\text{head}_\sigma(z),\ \log\sigma_{\min},\ \log\sigma_{\max})\bigr) \cdot \Delta\theta_{\max}$$
 
 where $z$ is the output of a shared MLP trunk. The $\tanh$ on the mean ensures it stays within the physical action bounds. Standard deviation is clamped in log-space to $[-3.0, -0.5]$ to prevent collapse or explosion.
 
@@ -130,7 +130,9 @@ We built our own training pipeline from scratch — environment, model, reward s
 - **State**: $(\sin\theta_1, \cos\theta_1, \Delta x, \Delta y)$
 - **Hyperparameters**: $\text{lr} = 0.001$, $\gamma = 0.95$
 
-The agent learned to reach a fixed target from a fixed starting position with **100% success rate in 16 episodes**. Test runs confirmed stability.
+The agent learned to reach a fixed target from a fixed starting position with **100% success rate in 16 episodes**.
+
+Then we moved extended our state space by adding continuous values for robot joints and random starting points, keeping target static. Agent learned to reach **fixed target** from a **random starting position** with **100% success rate in ~1000 episodes**. In both cases tests confirmed stability.
 
 ### Iteration 3 — Continuous Actions, Random Targets
 
@@ -147,6 +149,18 @@ We moved to the full problem: **random initial joint angles**, **random target p
 
 ## Results
 
+### Static Target (Iteration 2, static target with random starting point, continuous action space)
+
+Training on a fixed target (simulation hidden):
+
+![Static target training](assets/learning_static_target_nosim.gif)
+
+Trained policy evaluation on the static target:
+
+![Static target testing](assets/testing_static_target.gif)
+
+### Random Targets (Iteration 3)
+
 Early training — the agent starts exploring and learning to reach targets (rendering each 10-th robot step):
 
 ![Early learning](assets/early_learning.gif)
@@ -154,6 +168,10 @@ Early training — the agent starts exploring and learning to reach targets (ren
 Full training run (5000 episodes, simulation hidden for speed):
 
 ![Training without simulation](assets/learning_nosim.gif)
+
+Extended metrics view (all 7 training metrics):
+
+![Training extended metrics](assets/learning_extended_nosim.gif)
 
 Trained policy evaluation on random targets (sped-up):
 
@@ -199,7 +217,7 @@ Trained policy evaluation on random targets (sped-up):
 
 ---
 
-## Reproducibility
+## Reproducibility (implemented using python3.12)
 
 ### Install
 
@@ -236,6 +254,7 @@ Loads the saved policy and runs 200 test episodes (configurable via `--test-epis
 --train-episodes N     Number of training episodes
 --test-episodes N      Number of test episodes
 --seed N               Random seed (default: 42)
+--extended             (with --train --no-sim) Show all 7 training metrics
 ```
 
 ### Output
