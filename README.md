@@ -121,18 +121,26 @@ $$\mathcal{L} = -\frac{1}{T} \sum_{t=0}^{T} \log \pi_\theta(a_t \mid s_t) \cdot 
 
 We started with a simple program to verify that the task is solvable at all: a fixed start position, a fixed target, and a **discrete** action space. The agent learned to reach the target reliably, confirming that the problem is well-posed and the reward signal is informative enough for learning.
 
-### Iteration 2 — Custom REINFORCE with Discrete Actions
+![Proof of concept](assets/proof_of_concept.gif)
 
-We built our own training pipeline from scratch — environment, model, reward shaping, and a Pygame-based GUI with live plotting. Configuration:
+### Iteration 2 — Continuous Actions, Static Target
 
-- **Discrete action space**: 7 actions (discretized joint velocity combinations)
+We moved to a continuous Gaussian action space while keeping the target fixed (one target position) and randomizing only the robot's initial joint angles at each episode. Configuration:
+
+- **Continuous action space**: Gaussian policy over $(\Delta\theta_1, \Delta\theta_2)$ bounded by $\pm0.1$ rad
 - **Network**: 2 hidden layers, 128 units each
-- **State**: $(\sin\theta_1, \cos\theta_1, \Delta x, \Delta y)$
-- **Hyperparameters**: $\text{lr} = 0.001$, $\gamma = 0.95$
+- **State**: full observation including joint encodings and end-effector position
+- **Hyperparameters**: $\text{lr} = 10^{-4}$ (annealed), $\gamma = 0.99$
 
-The agent learned to reach a fixed target from a fixed starting position with **100% success rate in 16 episodes**.
+The agent learned to reach the single (static) target from randomized starts with high reliability (training stabilised in the order of ~1000 episodes).
 
-Then we moved extended our state space by adding continuous values for robot joints and random starting points, keeping target static. Agent learned to reach **fixed target** from a **random starting position** with **100% success rate in ~1000 episodes**. In both cases tests confirmed stability.
+Training on the static target (no-sim render):
+
+![Static target training](assets/learning_static_target_nosim.gif)
+
+Trained policy evaluation on the static target:
+
+![Static target testing](assets/testing_static_target.gif)
 
 ### Iteration 3 — Continuous Actions, Random Targets
 
@@ -144,22 +152,6 @@ We moved to the full problem: **random initial joint angles**, **random target p
 - Learning rate annealed from $10^{-4}$ to $10^{-5}$ via cosine schedule
 - Moving-average baseline buffer (200 episodes) instead of per-episode normalization
 - $\gamma = 0.99$
-
----
-
-## Results
-
-### Static Target (Iteration 2, static target with random starting point, continuous action space)
-
-Training on a fixed target (simulation hidden):
-
-![Static target training](assets/learning_static_target_nosim.gif)
-
-Trained policy evaluation on the static target:
-
-![Static target testing](assets/testing_static_target.gif)
-
-### Random Targets (Iteration 3)
 
 Early training — the agent starts exploring and learning to reach targets (rendering each 10-th robot step):
 
