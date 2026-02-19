@@ -61,7 +61,7 @@ $$r_t = \underbrace{\alpha \cdot (d_{t-1} - d_t)}_{\text{progress}} - \underbrac
 | Goal bonus | $R_{\text{goal}}$ | +15.0 |
 | Failure / timeout penalty | $R_{\text{fail}}$ | −5.0 |
 
-Optional smoothness penalties ($\|a_t\|^2$ and $\|a_t - a_{t-1}\|^2$) are available but disabled by default.
+Optional smoothness penalties ($\|a_t\|_2$ and $\|a_t - a_{t-1}\|_2$) are available but disabled by default.
 
 ---
 

@@ -181,11 +181,11 @@ class Environment:
         
         a_t = self._curr_action
         if a_t is not None and self.rew_cfg.action_l2_scale != 0.0:
-            reward -= self.rew_cfg.action_l2_scale * float(np.linalg.norm(a_t, a_t))
+            reward -= self.rew_cfg.action_l2_scale * np.linalg.norm(a_t, a_t)
 
         if a_t is not None and self._prev_action is not None and self.rew_cfg.action_delta_scale != 0.0:
             da = a_t - self._prev_action
-            reward -= self.rew_cfg.action_delta_scale * float(np.dot(da, da))
+            reward -= self.rew_cfg.action_delta_scale * np.linalg.norm(da, da)
             
         goal_reached = dist < float(self.env_cfg.target_thresh)
 
