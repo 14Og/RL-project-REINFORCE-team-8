@@ -44,9 +44,6 @@ class EnvConfig:
     max_steps: int = 200
     forbid_link_target_intersection: bool = True
     target_point_radius: float = 1.0
-    use_abs_dist: bool = False
-    normalize_dist: bool = True
-    dist_scale: float = 300.0
     
 @dataclass
 class GUIConfig:
