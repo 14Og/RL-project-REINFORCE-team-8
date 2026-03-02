@@ -7,7 +7,7 @@ import numpy as np
 from .config import EnvConfig, RewardConfig, RobotConfig
 from .robot import Robot
 from .model import Model
-from .state import State
+from .state import State as BaseState
 
 
 class Environment:
@@ -19,6 +19,7 @@ class Environment:
         robot_cfg: RobotConfig,
         model: Model,
         seed: int = 42,
+        obstacles: Optional[np.ndarray] = None,
     ) -> None:
         self.env_cfg = env_cfg
         self.rew_cfg = reward_cfg
@@ -34,6 +35,12 @@ class Environment:
         self._reach_max = L1 + L2
         self._reach_min = max(abs(L1 - L2), L1)
 
+        # Lidar and collision parameters
+        self._obstacles = obstacles if obstacles is not None else np.empty((0, 3))
+        self._ray_len = 0.7
+        self._collision_threshold = 0.05
+        self._n_lidar_rays = 16
+
         self._train_mode: bool = True
         self._needs_reset: bool = True
 
@@ -43,9 +50,43 @@ class Environment:
         self.reason: str = "not_started"
         self._prev_dist: float = float("nan")
 
-        self._last_state: Optional[State] = None
+        self._last_state: Optional[BaseState] = None
         self._prev_action = None
         self._curr_action = None
+
+    def check_collision(self, joints: np.ndarray) -> bool:
+        """Check if any segment collides with obstacles."""
+        for obs in self._obstacles:
+            obs_p, r = obs[:2], obs[2] + self._collision_threshold
+            for i in range(len(joints) - 1):
+                p1, p2 = joints[i], joints[i + 1]
+                vec = p2 - p1
+                t = np.clip(np.dot(obs_p - p1, vec) / (np.dot(vec, vec) + 1e-6), 0, 1)
+                if np.linalg.norm(obs_p - (p1 + t * vec)) <= r:
+                    return True
+        return False
+
+    def get_point_lidar(self, pos: np.ndarray, n_rays: Optional[int] = None) -> np.ndarray:
+        """Get lidar readings from a point position."""
+        if n_rays is None:
+            n_rays = self._n_lidar_rays
+        readings = np.full(n_rays, 1.0)
+        angles = np.linspace(0, 2 * np.pi, n_rays, endpoint=False)
+        for i, ang in enumerate(angles):
+            d_vec = np.array([np.cos(ang), np.sin(ang)])
+            min_d = self._ray_len
+            for obs in self._obstacles:
+                oc = pos - obs[:2]
+                b = 2.0 * np.dot(d_vec, oc)
+                c = np.dot(oc, oc) - obs[2] ** 2
+                disc = b ** 2 - 4 * c
+                if disc >= 0:
+                    t = (-b - np.sqrt(disc)) / 2.0
+                    if 0 <= t <= min_d:
+                        min_d = t
+            readings[i] = min_d / self._ray_len
+        return readings
+
 
     def reset_episode(self, *, train: bool = True, randomize_theta: bool = True) -> np.ndarray:
         self._train_mode = bool(train)
@@ -126,12 +167,20 @@ class Environment:
         ee = joints[-1]
         dist = float(np.linalg.norm(ee - self.target))
 
+        # Get lidar readings from each joint
+        lidar_data = []
+        for j_idx in range(1, 4):  # 3 joints
+            lidar_readings = self.get_point_lidar(joints[j_idx])
+            lidar_data.append(lidar_readings)
+
         return {
             "joints": joints,
             "end_effector": ee,
             "target": self.target.copy(),
             "distance": dist,
             "theta": self.robot.theta,
+            "obstacles": self._obstacles.copy(),
+            "lidar": lidar_data,
             "step": int(self.steps),
             "done": bool(self.done),
             "success": bool(self.success),
@@ -151,7 +200,7 @@ class Environment:
         r = np.sqrt(r_sq)
         return self._base + np.array([r * np.cos(angle), r * np.sin(angle)], dtype=np.float32)
 
-    def _get_state(self) -> State:
+    def _get_state(self) -> np.ndarray:
         st = self.robot.obs()
         st.ee_x = (st.ee_x - self._base[0]) / self._reach_max
         st.ee_y = (st.ee_y - self._base[1]) / self._reach_max
@@ -167,13 +216,20 @@ class Environment:
             dx, dy = dx / s, dy / s
 
         st.dist_x = dx
-        st.dist_y = dy 
-        return st
+        st.dist_y = dy
+        
+        # Get lidar readings for 3 segments (joints 1, 2, 3)
+        joints = self.robot.joints_xy()
+        st.lidar_j1 = self.get_point_lidar(joints[1])
+        st.lidar_j2 = self.get_point_lidar(joints[2])
+        st.lidar_j3 = self.get_point_lidar(joints[3])
+        
+        return np.asarray(st, dtype=np.float32)
 
     def _compute_reward_and_done(self) -> Tuple[float, bool, Dict[str, Any]]:
         joints = self.robot.joints_xy()
-        p0, p1, p2 = joints[0], joints[1], joints[2]
-        ee = p2
+        p0, p1, p2, p3 = joints[0], joints[1], joints[2], joints[3]
+        ee = p3
         dist = float(np.linalg.norm(ee - self.target))
 
         progress = float(self._prev_dist - dist)
@@ -186,17 +242,24 @@ class Environment:
         if a_t is not None and self._prev_action is not None and self.rew_cfg.action_delta_scale != 0.0:
             da = a_t - self._prev_action
             reward -= self.rew_cfg.action_delta_scale * np.linalg.norm(da, da)
+        
+        # Check collision
+        collision = self.check_collision(joints)
+        fail_reason = ""
+        if collision:
+            fail = True
+            fail_reason = "collision"
+        else:
+            fail = False
             
         goal_reached = dist < float(self.env_cfg.target_thresh)
-
-        fail = False
-        fail_reason = ""
 
         if self.env_cfg.forbid_link_target_intersection and (not goal_reached):
             r = float(self.env_cfg.target_point_radius)
             d01 = _point_to_segment_distance(self.target, p0, p1)
             d12 = _point_to_segment_distance(self.target, p1, p2)
-            if (d01 < r) or (d12 < r):
+            d23 = _point_to_segment_distance(self.target, p2, p3)
+            if (d01 < r) or (d12 < r) or (d23 < r):
                 fail = True
                 fail_reason = "link_target_intersection"
 
