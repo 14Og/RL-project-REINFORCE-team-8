@@ -52,6 +52,15 @@ class EnvConfig:
     forbid_link_target_intersection: bool = True
     target_point_radius: float = 1.0
     
+    # Параметры для автоматической генерации препятствий
+    obstacles_enabled: bool = False
+    obstacles_num: int = 5
+    obstacles_radius_min: float = 10.0
+    obstacles_radius_max: float = 30.0
+    obstacles_area: Tuple[float, float, float, float] = (100, 700, 100, 700)  # область появления
+    obstacles_check_robot: bool = True
+    obstacles_check_overlap: bool = True
+    
 @dataclass
 class GUIConfig:
     window_size: Tuple[int, int] = (1600, 800)

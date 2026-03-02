@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, List
 
 import numpy as np
 
@@ -8,6 +8,8 @@ from .config import EnvConfig, LidarConfig, RewardConfig, RobotConfig
 from .obstacle import Obstacle
 from .robot import Robot
 from .model import Model
+from .state import State
+from .obstacle import ObstacleManager, ObstacleConfig, Obstacle, random_obstacle_config
 
 
 class Environment:
@@ -19,6 +21,8 @@ class Environment:
         robot_cfg: RobotConfig,
         lidar_cfg: LidarConfig,
         model: Model,
+        obstacles_config: Optional[List[ObstacleConfig]] = None,
+        obstacles_gen_params: Optional[dict] = None,
         seed: int = 42,
         obstacles: Optional[List[Obstacle]] = None,
     ) -> None:
@@ -64,6 +68,32 @@ class Environment:
                     return True
         return False
 
+
+        # Инициализация препятствий
+        self.obstacle_manager = None
+
+        # 1) Явно переданные конфиги
+        if obstacles_config is not None:
+            self.obstacle_manager = ObstacleManager(obstacles_config)
+
+        # 2) Параметры для генерации (если переданы)
+        elif obstacles_gen_params is not None:
+            self.obstacle_manager = ObstacleManager([])
+            self.add_random_obstacles(**obstacles_gen_params)
+
+        # 3) Генерация из EnvConfig (если включена)
+        elif env_cfg.obstacles_enabled:
+            gen_params = {
+                "num": env_cfg.obstacles_num,
+                "area": env_cfg.obstacles_area,
+                "radius_range": (env_cfg.obstacles_radius_min, env_cfg.obstacles_radius_max),
+                "check_robot": env_cfg.obstacles_check_robot,
+                "check_overlap": env_cfg.obstacles_check_overlap,
+            }
+            self.obstacle_manager = ObstacleManager([])
+            self.add_random_obstacles(**gen_params)
+
+        # Если ни одно условие не сработало – manager остаётся None
 
     def reset_episode(self, *, train: bool = True, randomize_theta: bool = True) -> np.ndarray:
         self._train_mode = bool(train)
@@ -163,7 +193,7 @@ class Environment:
             else np.empty((0, 3), dtype=np.float32)
         )
 
-        return {
+        data = {
             "joints": joints,
             "end_effector": ee,
             "target": self.target.copy(),
@@ -177,6 +207,11 @@ class Environment:
             "reason": self.reason,
             "train_mode": bool(self._train_mode),
         }
+
+        if self.obstacle_manager:
+            data["obstacles"] = self.obstacle_manager.get_render_data()
+
+        return data
 
     def get_metrics(self) -> Dict[str, Any]:
         return {
@@ -252,6 +287,72 @@ class Environment:
 
         self._prev_dist = dist
         return float(reward), bool(done), info
+
+    def _obstacle_collides_with_robot(self, obs_pos: np.ndarray, obs_radius: float) -> bool:
+        """Проверяет, пересекается ли круг препятствия с любым звеном робота в текущей конфигурации."""
+        joints = self.robot.joints_xy()  # (3, 2) – точки сочленений
+        for i in range(len(joints) - 1):
+            dist = _point_to_segment_distance(obs_pos, joints[i], joints[i+1])
+            if dist < obs_radius:
+                return True
+        return False
+
+    def _obstacle_collides_with_others(self, obs_pos: np.ndarray, obs_radius: float, existing: List[Obstacle]) -> bool:
+        """Проверяет пересечение с уже существующими препятствиями."""
+        for other in existing:
+            dist = np.linalg.norm(obs_pos - other.position)
+            if dist < (obs_radius + other.radius):
+                return True
+        return False
+
+    def add_random_obstacles(
+        self,
+        num: int,
+        area: Tuple[float, float, float, float],
+        radius_range: Tuple[float, float],
+        check_robot: bool = True,
+        check_overlap: bool = True,
+        max_attempts_per_obstacle: int = 1000
+    ) -> int:
+        """
+        Генерирует и добавляет заданное количество препятствий со случайными параметрами.
+
+        Параметры:
+            num – количество препятствий для добавления
+            area – область появления (xmin, xmax, ymin, ymax)
+            radius_range – диапазон радиусов (rmin, rmax)
+            check_robot – проверять, чтобы препятствие не пересекалось с роботом
+            check_overlap – проверять пересечения между препятствиями
+            max_attempts_per_obstacle – максимальное число попыток для генерации одного препятствия
+
+        Возвращает:
+            количество успешно добавленных препятствий
+        """
+        if self.obstacle_manager is None:
+            self.obstacle_manager = ObstacleManager([])
+
+        added = 0
+        attempts = 0
+        existing_obstacles = self.obstacle_manager.obstacles.copy()
+
+        while added < num and attempts < num * max_attempts_per_obstacle:
+            attempts += 1
+            cfg = random_obstacle_config(area, radius_range, rng=self._rng)
+            pos = np.asarray(cfg.position)
+            r = cfg.radius
+
+            if check_robot and self._obstacle_collides_with_robot(pos, r):
+                continue
+
+            if check_overlap and self._obstacle_collides_with_others(pos, r, existing_obstacles):
+                continue
+
+            new_obs = Obstacle(cfg)
+            self.obstacle_manager.obstacles.append(new_obs)
+            existing_obstacles.append(new_obs)
+            added += 1
+
+        return added
 
 
 def _point_to_segment_distance(p: np.ndarray, a: np.ndarray, b: np.ndarray) -> float:
