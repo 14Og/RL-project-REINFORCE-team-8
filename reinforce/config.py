@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Tuple, Optional, List
 
 @dataclass(frozen=True)
@@ -18,10 +18,10 @@ class LidarConfig:
 
 @dataclass
 class ObstacleConfig:
-    positions: List[List[int]] = [[100, 100], [200, 200]] 
-    radius: float = 50
-    random: bool = False
-    dynamic: bool = False
+    positions: List[List[float]] = field(default_factory=list)  # [[x1,y1], [x2,y2], ...]
+    radius: float = 20.0
+    random: bool = False   # TBD
+    dynamic: bool = False  # TBD
 
 @dataclass
 class ModelConfig:
@@ -51,19 +51,8 @@ class EnvConfig:
     max_steps: int = 200
     forbid_link_target_intersection: bool = True
     target_point_radius: float = 1.0
-    
-    # Параметры для автоматической генерации препятствий
-    obstacles_enabled: bool = False
-    obstacles_num: int = 5
-    obstacles_radius_min: float = 10.0
-    obstacles_radius_max: float = 30.0
-    obstacles_area: Tuple[float, float, float, float] = (100, 700, 100, 700)
-    obstacles_check_robot: bool = True
-    obstacles_check_overlap: bool = True
-
-    # Новые параметры для генерации цели
-    min_target_distance_from_ee: float = 0.0      # минимальное расстояние от начального положения схвата
-    target_line_of_sight: bool = False            # проверять ли прямую видимость от базы до цели
+    min_target_distance_from_ee: float = 0.0  # min dist from initial ee to sampled target
+    target_line_of_sight: bool = False         # reject targets with no line-of-sight from base
     
 @dataclass
 class GUIConfig:

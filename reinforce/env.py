@@ -4,12 +4,10 @@ from typing import Any, Dict, Optional, Tuple, List
 
 import numpy as np
 
-from .config import EnvConfig, LidarConfig, RewardConfig, RobotConfig
-from .obstacle import Obstacle
+from .config import EnvConfig, LidarConfig, ObstacleConfig, RewardConfig, RobotConfig
+from .obstacle import Obstacle, ObstacleManager
 from .robot import Robot
 from .model import Model
-from .state import State
-from .obstacle import ObstacleManager, ObstacleConfig, Obstacle, random_obstacle_config
 
 
 class Environment:
@@ -21,17 +19,15 @@ class Environment:
         robot_cfg: RobotConfig,
         lidar_cfg: LidarConfig,
         model: Model,
-        obstacles_config: Optional[List[ObstacleConfig]] = None,
-        obstacles_gen_params: Optional[dict] = None,
+        obstacle_cfg: ObstacleConfig,
         seed: int = 42,
-        obstacles: Optional[List[Obstacle]] = None,
     ) -> None:
         self.env_cfg = env_cfg
         self.rew_cfg = reward_cfg
         self.target = np.asarray(env_cfg.target_xy, dtype=np.float32)
 
-        self._obstacles: List[Obstacle] = obstacles if obstacles is not None else []
-        self.robot = Robot(robot_cfg, lidar_cfg, self._obstacles, seed=seed)
+        self.obstacle_manager = ObstacleManager(obstacle_cfg)
+        self.robot = Robot(robot_cfg, lidar_cfg, self.obstacle_manager.obstacles, seed=seed)
         self.model = model
         self._rng = np.random.default_rng(seed)
 
@@ -58,7 +54,7 @@ class Environment:
 
     def check_collision(self, joints: np.ndarray) -> bool:
         """Check if any robot link segment collides with any obstacle."""
-        for obs in self._obstacles:
+        for obs in self.obstacle_manager.obstacles:
             r = obs.radius + self._collision_threshold
             for i in range(len(joints) - 1):
                 p1, p2 = joints[i], joints[i + 1]
@@ -67,33 +63,6 @@ class Environment:
                 if np.linalg.norm(obs.center - (p1 + t * vec)) <= r:
                     return True
         return False
-
-
-        # Инициализация препятствий
-        self.obstacle_manager = None
-
-        # 1) Явно переданные конфиги
-        if obstacles_config is not None:
-            self.obstacle_manager = ObstacleManager(obstacles_config)
-
-        # 2) Параметры для генерации (если переданы)
-        elif obstacles_gen_params is not None:
-            self.obstacle_manager = ObstacleManager([])
-            self.add_random_obstacles(**obstacles_gen_params)
-
-        # 3) Генерация из EnvConfig (если включена)
-        elif env_cfg.obstacles_enabled:
-            gen_params = {
-                "num": env_cfg.obstacles_num,
-                "area": env_cfg.obstacles_area,
-                "radius_range": (env_cfg.obstacles_radius_min, env_cfg.obstacles_radius_max),
-                "check_robot": env_cfg.obstacles_check_robot,
-                "check_overlap": env_cfg.obstacles_check_overlap,
-            }
-            self.obstacle_manager = ObstacleManager([])
-            self.add_random_obstacles(**gen_params)
-
-        # Если ни одно условие не сработало – manager остаётся None
 
     def reset_episode(self, *, train: bool = True, randomize_theta: bool = True) -> np.ndarray:
         self._train_mode = bool(train)
@@ -189,19 +158,13 @@ class Environment:
             for lidar in mgr.lidars
         ]
 
-        obs_arr = (
-            np.array([[o.center[0], o.center[1], o.radius] for o in self._obstacles], dtype=np.float32)
-            if self._obstacles
-            else np.empty((0, 3), dtype=np.float32)
-        )
-
-        data = {
+        return {
             "joints": joints,
             "end_effector": ee,
             "target": self.target.copy(),
             "distance": dist,
             "theta": self.robot.theta,
-            "obstacles": obs_arr,
+            "obstacles": self.obstacle_manager.get_render_data(),
             "lidar": lidar_data,
             "step": int(self.steps),
             "done": bool(self.done),
@@ -210,86 +173,41 @@ class Environment:
             "train_mode": bool(self._train_mode),
         }
 
-        if self.obstacle_manager:
-            data["obstacles"] = self.obstacle_manager.get_render_data()
-
-        return data
-
     def get_metrics(self) -> Dict[str, Any]:
         return {
             "train": self.model.get_train_metrics(),
             "test": self.model.get_test_metrics(),
         }
 
-    def _sample_reachable_target(self) -> np.ndarray:
-        """(Legacy) старый метод без проверок, оставлен для обратной совместимости"""
-        angle = self._rng.uniform(0, 2 * np.pi)
-        r_sq = self._rng.uniform(self._reach_min ** 2, self._reach_max ** 2)
-        r = np.sqrt(r_sq)
-        return self._base + np.array([r * np.cos(angle), r * np.sin(angle)], dtype=np.float32)
-
     def _is_target_valid(self, target: np.ndarray, ee_start: np.ndarray) -> bool:
-        """Проверяет, удовлетворяет ли цель всем ограничениям."""
-        # 1. Кинематическая достижимость (расстояние от базы)
-        dist_from_base = np.linalg.norm(target - self._base)
+        dist_from_base = float(np.linalg.norm(target - self._base))
         if dist_from_base < self._reach_min - 1e-6 or dist_from_base > self._reach_max + 1e-6:
             return False
-
-        # 2. Не внутри препятствий
-        if self.obstacle_manager is not None:
-            for obs in self.obstacle_manager.obstacles:
-                dist_to_obs = np.linalg.norm(target - obs.position)
-                if dist_to_obs < obs.radius - 1e-6:
-                    return False
-
-        # 3. Минимальное расстояние от начального положения схвата
-        if self.env_cfg.min_target_distance_from_ee > 0:
-            dist_to_ee = np.linalg.norm(target - ee_start)
-            if dist_to_ee < self.env_cfg.min_target_distance_from_ee:
+        for obs in self.obstacle_manager.obstacles:
+            if float(np.linalg.norm(target - obs.center)) < obs.radius - 1e-6:
                 return False
-
-        # 4. Прямая видимость от базы до цели (опционально)
-        if self.env_cfg.target_line_of_sight and self.obstacle_manager is not None:
+        if self.env_cfg.min_target_distance_from_ee > 0:
+            if float(np.linalg.norm(target - ee_start)) < self.env_cfg.min_target_distance_from_ee:
+                return False
+        if self.env_cfg.target_line_of_sight:
             for obs in self.obstacle_manager.obstacles:
-                d = _point_to_segment_distance(obs.position, self._base, target)
-                if d < obs.radius - 1e-6:
+                if _point_to_segment_distance(obs.center, self._base, target) < obs.radius - 1e-6:
                     return False
-
         return True
 
     def _sample_valid_target(self, ee_start: np.ndarray, max_attempts: int = 1000) -> np.ndarray:
-        """Генерирует случайную цель, удовлетворяющую всем условиям."""
         for _ in range(max_attempts):
             angle = self._rng.uniform(0, 2 * np.pi)
-            r_sq = self._rng.uniform(self._reach_min ** 2, self._reach_max ** 2)
-            r = np.sqrt(r_sq)
+            r = np.sqrt(self._rng.uniform(self._reach_min ** 2, self._reach_max ** 2))
             candidate = self._base + np.array([r * np.cos(angle), r * np.sin(angle)], dtype=np.float32)
             if self._is_target_valid(candidate, ee_start):
                 return candidate
+        import warnings
+        warnings.warn("Could not sample a valid target after many attempts, using fallback.", RuntimeWarning)
+        return self._base + np.array([self._reach_max * 0.5, 0.0], dtype=np.float32)
 
-        # Если не удалось, возвращаем запасной вариант (ближайшую к базе точку в направлении 0°)
-        print("Warning: could not generate valid target after many attempts, using fallback")
-        fallback = self._base + np.array([self._reach_min * 0.5, 0.0], dtype=np.float32)
-        return fallback
-
-    def _get_state(self) -> State:
-        st = self.robot.obs()
-        st.ee_x = (st.ee_x - self._base[0]) / self._reach_max
-        st.ee_y = (st.ee_y - self._base[1]) / self._reach_max
-
-        dx = float(self.target[0] - self.robot.end_effector_xy()[0])
-        dy = float(self.target[1] - self.robot.end_effector_xy()[1])
-
-        if self.env_cfg.use_abs_dist:
-            dx, dy = abs(dx), abs(dy)
-
-        if self.env_cfg.normalize_dist:
-            s = float(self.env_cfg.dist_scale)
-            dx, dy = dx / s, dy / s
-
-        st.dist_x = dx
-        st.dist_y = dy 
-        return st
+    def _get_state(self) -> np.ndarray:
+        return np.asarray(self.robot.obs(), dtype=np.float32)
 
     def _compute_reward_and_done(self) -> Tuple[float, bool, Dict[str, Any]]:
         joints = self.robot.joints_xy()
@@ -351,71 +269,6 @@ class Environment:
         self._prev_dist = dist
         return float(reward), bool(done), info
 
-    def _obstacle_collides_with_robot(self, obs_pos: np.ndarray, obs_radius: float) -> bool:
-        """Проверяет, пересекается ли круг препятствия с любым звеном робота в текущей конфигурации."""
-        joints = self.robot.joints_xy()  # (3, 2) – точки сочленений
-        for i in range(len(joints) - 1):
-            dist = _point_to_segment_distance(obs_pos, joints[i], joints[i+1])
-            if dist < obs_radius:
-                return True
-        return False
-
-    def _obstacle_collides_with_others(self, obs_pos: np.ndarray, obs_radius: float, existing: List[Obstacle]) -> bool:
-        """Проверяет пересечение с уже существующими препятствиями."""
-        for other in existing:
-            dist = np.linalg.norm(obs_pos - other.position)
-            if dist < (obs_radius + other.radius):
-                return True
-        return False
-
-    def add_random_obstacles(
-        self,
-        num: int,
-        area: Tuple[float, float, float, float],
-        radius_range: Tuple[float, float],
-        check_robot: bool = True,
-        check_overlap: bool = True,
-        max_attempts_per_obstacle: int = 1000
-    ) -> int:
-        """
-        Генерирует и добавляет заданное количество препятствий со случайными параметрами.
-
-        Параметры:
-            num – количество препятствий для добавления
-            area – область появления (xmin, xmax, ymin, ymax)
-            radius_range – диапазон радиусов (rmin, rmax)
-            check_robot – проверять, чтобы препятствие не пересекалось с роботом
-            check_overlap – проверять пересечения между препятствиями
-            max_attempts_per_obstacle – максимальное число попыток для генерации одного препятствия
-
-        Возвращает:
-            количество успешно добавленных препятствий
-        """
-        if self.obstacle_manager is None:
-            self.obstacle_manager = ObstacleManager([])
-
-        added = 0
-        attempts = 0
-        existing_obstacles = self.obstacle_manager.obstacles.copy()
-
-        while added < num and attempts < num * max_attempts_per_obstacle:
-            attempts += 1
-            cfg = random_obstacle_config(area, radius_range, rng=self._rng)
-            pos = np.asarray(cfg.position)
-            r = cfg.radius
-
-            if check_robot and self._obstacle_collides_with_robot(pos, r):
-                continue
-
-            if check_overlap and self._obstacle_collides_with_others(pos, r, existing_obstacles):
-                continue
-
-            new_obs = Obstacle(cfg)
-            self.obstacle_manager.obstacles.append(new_obs)
-            existing_obstacles.append(new_obs)
-            added += 1
-
-        return added
 
 
 def _point_to_segment_distance(p: np.ndarray, a: np.ndarray, b: np.ndarray) -> float:
