@@ -255,7 +255,7 @@ class Environment:
             "timeout": bool(timeout),
             "fail": bool(fail),
             "reason": (
-                "goal" if goal_reached else ("timeout" if timeout else (fail_reason or "fail"))
+                "goal" if goal_reached else ("timeout" if timeout else (fail_reason or None))
             ),
         }
 

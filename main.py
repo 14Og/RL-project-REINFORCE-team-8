@@ -1,7 +1,6 @@
 import argparse as ap
 
-from reinforce.config import RobotConfig, EnvConfig, RewardConfig, GUIConfig, ModelConfig
-from reinforce.gui import GUI
+from reinforce.config import RobotConfig, EnvConfig, RewardConfig, GUIConfig, ModelConfig, LidarConfig, ObstacleConfig
 
 def parse_args() -> ap.Namespace:
     p = ap.ArgumentParser()
@@ -12,10 +11,12 @@ def parse_args() -> ap.Namespace:
     )
 
     p.add_argument(
-        "--no-sim", action="store_true", help="(train only) Hide simulation panel; show plots only."
+        "--no-sim", action="store_true",
+        help="Headless mode: no pygame window, live matplotlib plots only."
     )
     p.add_argument(
-        "--extended", action="store_true", help="(train --no-sim only) Show all 7 training metrics."
+        "--mock", action="store_true",
+        help="Use a random-action MockModel to stress-test env mechanics."
     )
     p.add_argument("--model-path", type=str, default=None)
     p.add_argument("--train-episodes", type=int, default=None)
@@ -24,36 +25,103 @@ def parse_args() -> ap.Namespace:
     return p.parse_args()
 
 
+def _build_model(args, robot_cfg, lidar_cfg, model_cfg, gui_cfg):
+    """Construct either a MockModel or a real Model depending on --mock flag."""
+    from reinforce.runner import compute_obs_dim
+
+    if args.mock:
+        from reinforce.mock_model import MockModel
+        return MockModel(
+            act_dim=len(robot_cfg.link_lengths),
+            action_limit=float(robot_cfg.dtheta_max),
+            seed=int(args.seed),
+        )
+
+    from reinforce.model import Model
+    obs_dim = compute_obs_dim(robot_cfg, lidar_cfg)
+    return Model(
+        obs_dim=obs_dim,
+        act_dim=len(robot_cfg.link_lengths),
+        cfg=model_cfg,
+        action_limit=robot_cfg.dtheta_max,
+        train_episodes=gui_cfg.train_episodes,
+    )
+
+
 def main() -> None:
 
     args = parse_args()
 
-    robot_cfg = RobotConfig()
-    env_cfg = EnvConfig()
-    rew_cfg = RewardConfig()
-    gui_cfg = GUIConfig()
-    model_cfg = ModelConfig()
+    robot_cfg    = RobotConfig()
+    env_cfg      = EnvConfig()
+    rew_cfg      = RewardConfig()
+    gui_cfg      = GUIConfig()
+    model_cfg    = ModelConfig()
+    lidar_cfg    = LidarConfig()
+    obstacle_cfg = ObstacleConfig()
 
     gui_cfg.train_episodes = args.train_episodes or gui_cfg.train_episodes
-    gui_cfg.test_episodes = args.test_episodes or gui_cfg.test_episodes
-    gui_cfg.model_path = args.model_path or gui_cfg.model_path
+    gui_cfg.test_episodes  = args.test_episodes  or gui_cfg.test_episodes
+    gui_cfg.model_path     = args.model_path     or gui_cfg.model_path
 
-    start_mode = "train" if args.train else "test"
-    no_sim_train = bool(args.no_sim) if args.train else False
-    extended = bool(args.extended) if (args.train and args.no_sim) else False
+    model = _build_model(args, robot_cfg, lidar_cfg, model_cfg, gui_cfg)
 
-    app = GUI(
-        gui_cfg=gui_cfg,
-        robot_cfg=robot_cfg,
-        env_cfg=env_cfg,
-        reward_cfg=rew_cfg,
-        model_cfg=model_cfg,
-        seed=int(args.seed),
-        start_mode=start_mode,
-        no_sim_train=no_sim_train,
-        extended=extended,
-    )
-    app.run()
+    from reinforce.runner import Runner
+
+    if args.no_sim:
+        # ----------------------------------------------------------------
+        # Headless path — no pygame imported
+        # ----------------------------------------------------------------
+        runner = Runner(
+            env_cfg=env_cfg,
+            reward_cfg=rew_cfg,
+            robot_cfg=robot_cfg,
+            lidar_cfg=lidar_cfg,
+            obstacle_cfg=obstacle_cfg,
+            gui_cfg=gui_cfg,
+            model=model,
+            seed=int(args.seed),
+            # pygame_renderer=None  (default → headless)
+        )
+
+        if args.train:
+            runner.train()
+            if not args.mock:
+                runner.save_model()
+        else:
+            runner.test(model_path=gui_cfg.model_path)
+
+        import matplotlib.pyplot as plt
+        plt.show(block=True)   # keep the final figure open until user closes it
+
+    else:
+        # ----------------------------------------------------------------
+        # Pygame path — PygameRenderer injected into the same Runner
+        # ----------------------------------------------------------------
+        from reinforce.gui import PygameRenderer
+
+        if args.test:
+            model.load(gui_cfg.model_path, load_optimizer=False)
+            model.set_eval_mode()
+
+        renderer = PygameRenderer(gui_cfg=gui_cfg, env_cfg=env_cfg)
+        runner = Runner(
+            env_cfg=env_cfg,
+            reward_cfg=rew_cfg,
+            robot_cfg=robot_cfg,
+            lidar_cfg=lidar_cfg,
+            obstacle_cfg=obstacle_cfg,
+            gui_cfg=gui_cfg,
+            model=model,
+            seed=int(args.seed),
+            pygame_renderer=renderer,
+        )
+
+        if args.train:
+            runner.train()
+        else:
+            runner.test()  # test only
+            renderer.close()
 
 
 if __name__ == "__main__":

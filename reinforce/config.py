@@ -18,10 +18,17 @@ class LidarConfig:
 
 @dataclass
 class ObstacleConfig:
-    positions: List[List[float]] = field(default_factory=list)  # [[x1,y1], [x2,y2], ...]
-    radius: float = 20.0
+        
+    @staticmethod
+    def _default_obs() -> List:
+        return [[250, 400], [550, 400]]
+    
+    positions: List[List[float]] = field(default_factory=_default_obs)
+    radius: float = 60.0
     random: bool = False   # TBD
     dynamic: bool = False  # TBD
+    
+        
 
 @dataclass
 class ModelConfig:
@@ -60,7 +67,7 @@ class GUIConfig:
     sim_width: int = 800
     plot_update_every: int = 10
     pause_on_done_frames: int = 0
-    steps_per_frame: int = 2
+    steps_per_frame: int = 1
     steps_per_frame_no_sim: int = 500
     model_path: str = "policy/best_policy.pt"
     train_episodes: int = 5000
