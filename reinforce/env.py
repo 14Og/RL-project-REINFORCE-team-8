@@ -7,6 +7,7 @@ import numpy as np
 from .config import EnvConfig, LidarConfig, ObstacleConfig, RewardConfig, RobotConfig
 from .obstacle import Obstacle, ObstacleManager
 from .robot import Robot
+from .state import State
 from .model_ppo import Model
 
 
@@ -35,7 +36,7 @@ class Environment:
         links = np.asarray(robot_cfg.link_lengths, dtype=float)
         self._base = base
         self._reach_max = float(np.sum(links))
-        self._reach_min = float(max(0.0, links[0] - np.sum(links[1:])))
+        self._reach_min = float(max(links[0] * 0.4, links[0] - np.sum(links[1:])))
 
         self._collision_threshold: float = 0.05
 
@@ -48,7 +49,7 @@ class Environment:
         self.reason: str = "not_started"
         self._prev_dist: float = float("nan")
 
-        self._last_state: Optional[np.ndarray] = None
+        self._last_state: State = None
         self._prev_action = None
         self._curr_action = None
 
@@ -120,10 +121,10 @@ class Environment:
             u = self.model.select_action(st, train=True)
         else:
             u = self.model.select_action(st, train=False)
-        _, self._curr_action = self.robot.step(u)
+        st, self._curr_action = self.robot.step(u)
         self.steps += 1
 
-        reward, done, info = self._compute_reward_and_done()
+        reward, done, info = self._compute_reward_and_done(st)
 
         if self._train_mode:
             self.model.observe(reward)
@@ -145,10 +146,9 @@ class Environment:
 
             self._needs_reset = True
 
-        st_next = self._get_state()
-        self._last_state = st_next
+        self._last_state = st
         self._prev_action = self._curr_action
-        return np.asarray(st_next, dtype=np.float32), float(reward), bool(self.done), info
+        return np.asarray(st, dtype=np.float32), float(reward), bool(self.done), info
 
     def get_render_data(self) -> Dict[str, Any]:
         joints = self.robot.joints_xy().astype(np.float32)
@@ -214,10 +214,10 @@ class Environment:
         warnings.warn("Could not sample a valid target after many attempts, using fallback.", RuntimeWarning)
         return self._base + np.array([self._reach_max * 0.5, 0.0], dtype=np.float32)
 
-    def _get_state(self) -> np.ndarray:
-        return np.asarray(self.robot.obs(), dtype=np.float32)
+    def _get_state(self) -> State:
+        return self.robot.obs()
 
-    def _compute_reward_and_done(self) -> Tuple[float, bool, Dict[str, Any]]:
+    def _compute_reward_and_done(self, current_state: State) -> Tuple[float, bool, Dict[str, Any]]:
         joints = self.robot.joints_xy()
         ee = joints[-1]
         dist = float(np.linalg.norm(ee - self.target))
@@ -244,28 +244,19 @@ class Environment:
             accel_sq = float(np.dot(delta_a, delta_a))
             reward -= float(self.rew_cfg.action_delta_scale) * accel_sq
 
-        # 4. Lidar-based obstacle avoidance reward
-        mgr = self.robot.lidar_manager
-        if mgr.n_lidars > 0:
-            # Get all lidar readings and find the minimum (closest obstacle)
-            all_readings = []
-            for lidar in mgr.lidars:
-                readings = lidar.scan(mgr._obstacles)
-                all_readings.extend(readings)
-            all_readings = np.array(all_readings)
-            
-            if len(all_readings) > 0:
-                min_lidar = float(np.min(all_readings))
-                
-                # Reward for maintaining safe distance (min_lidar close to 1.0 = far from obstacles)
-                safe_distance_reward = float(self.rew_cfg.obstacle_safety_scale) * min_lidar
-                reward += safe_distance_reward
-                
-                # Penalty for getting too close (danger zone)
-                danger_threshold = float(self.rew_cfg.obstacle_danger_threshold)
-                if min_lidar < danger_threshold:
-                    danger_penalty = float(self.rew_cfg.obstacle_danger_penalty) * (danger_threshold - min_lidar)
-                    reward -= danger_penalty
+        # 4. Lidar-based obstacle proximity penalty (per-lidar, smooth)
+        #    For each lidar, take the closest reading; if below threshold
+        #    apply a squared penalty — smooth, bounded, one value per lidar.
+        all_readings = current_state.lidar_rays
+        n_rays = self.robot.lidar_manager.cfg.num_rays
+        n_lidars = self.robot.lidar_manager.n_lidars
+        danger_threshold = float(self.rew_cfg.obstacle_danger_threshold)
+        for i in range(n_lidars):
+            lidar_min = float(np.min(all_readings[i * n_rays : (i + 1) * n_rays]))
+            if lidar_min < danger_threshold:
+                # Quadratic ramp: 0 at threshold, 1 at contact
+                proximity = (1.0 - lidar_min / danger_threshold) ** 2
+                reward -= float(self.rew_cfg.obstacle_danger_penalty) * proximity
         
         # 5. Stagnation penalty — punish freezing in place
         win = self.rew_cfg.stagnation_window

@@ -393,6 +393,7 @@ class Runner:
                 ax1.plot(*_downsample(r), alpha=0.3, lw=0.5, color="#2196F3")
                 ax1.plot(*_downsample(_running_mean(r, 10)), lw=1.8, color="#1565C0")
             ax1.set_title("total reward (ma=10)", fontsize=9)
+            ax1.set_xlabel("episode", fontsize=8)
             ax1.grid(True, alpha=0.3)
 
             # Row 0, Col 1: Steps/episode
@@ -400,6 +401,7 @@ class Runner:
                 ax2.plot(*_downsample(steps), alpha=0.3, lw=0.5, color="#FF9800")
                 ax2.plot(*_downsample(_running_mean(steps, 10)), lw=1.8, color="#E65100")
             ax2.set_title("steps / episode (ma=10)", fontsize=9)
+            ax2.set_xlabel("episode", fontsize=8)
             ax2.grid(True, alpha=0.3)
 
             # Row 1, Col 0: KL divergence
@@ -409,6 +411,7 @@ class Runner:
                     ax3.plot(*_downsample(valid_kl), alpha=0.3, lw=0.5, color="#9C27B0")
                     ax3.plot(*_downsample(_running_mean(valid_kl, 10)), lw=1.8, color="#6A1B9A")
             ax3.set_title("KL divergence (ma=10)", fontsize=9)
+            ax3.set_xlabel("update", fontsize=8)
             ax3.grid(True, alpha=0.3)
 
             # Row 1, Col 1: Sigma (all joints)
@@ -425,6 +428,7 @@ class Runner:
                 if valid_sigma2.size > 0:
                     ax4.plot(*_downsample(valid_sigma2), lw=1.2, color="#4CAF50", label="joint_2", alpha=0.8)
             ax4.set_title("sigma (policy std)", fontsize=9)
+            ax4.set_xlabel("update", fontsize=8)
             ax4.legend(fontsize=7, loc="best")
             ax4.grid(True, alpha=0.3)
 
@@ -433,13 +437,17 @@ class Runner:
                 ax5.plot(*_downsample(_windowed_rate(c, self._win)), lw=1.8, color="#F44336")
             ax5.set_ylim(-0.05, 1.05)
             ax5.set_title(f"collision rate (window={self._win})", fontsize=9)
+            ax5.set_xlabel("episode", fontsize=8)
             ax5.grid(True, alpha=0.3)
 
             # Row 2, Col 1: Entropy
             if entropy.size:
-                ax6.plot(*_downsample(entropy), alpha=0.3, lw=0.5, color="#607D8B")
-                ax6.plot(*_downsample(_running_mean(entropy, 10)), lw=1.8, color="#455A64")
+                valid_entropy = entropy[~np.isnan(entropy)]
+                if valid_entropy.size > 0:
+                    ax6.plot(*_downsample(valid_entropy), alpha=0.3, lw=0.5, color="#607D8B")
+                    ax6.plot(*_downsample(_running_mean(valid_entropy, 10)), lw=1.8, color="#455A64")
             ax6.set_title("entropy (ma=10)", fontsize=9)
+            ax6.set_xlabel("update", fontsize=8)
             ax6.grid(True, alpha=0.3)
 
             # Row 3, full width: Success rate
@@ -465,6 +473,7 @@ class Runner:
                 ax1.plot(np.cumsum(s) / np.arange(1, s.size + 1), lw=1.8, color="#4CAF50")
             ax1.set_ylim(-0.05, 1.05)
             ax1.set_title("cumulative success rate")
+            ax1.set_xlabel("episode", fontsize=8)
             ax1.grid(True, alpha=0.3)
 
             if dist.size:
@@ -475,11 +484,13 @@ class Runner:
                 )
                 ax2.legend(fontsize=7)
             ax2.set_title("final distance")
+            ax2.set_xlabel("episode", fontsize=8)
             ax2.grid(True, alpha=0.3)
 
             if steps.size:
                 ax3.plot(steps, color="#FF9800", lw=0.8)
             ax3.set_title("steps / episode")
+            ax3.set_xlabel("episode", fontsize=8)
             ax3.grid(True, alpha=0.3)
 
     # ------------------------------------------------------------------

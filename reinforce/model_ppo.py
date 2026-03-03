@@ -73,7 +73,7 @@ class Model:
         self.policy = policy.to(self.device)
         self.optimizer = torch.optim.Adam(self.policy.parameters(), lr=float(self.cfg.lr_start))
         self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            self.optimizer, T_max=int(train_episodes), eta_min=float(self.cfg.lr_min)
+            self.optimizer, T_max=int(self.cfg.n_ppo_updates), eta_min=float(self.cfg.lr_min)
         )
 
         self.baseline_buffer: Deque[float] = deque(maxlen=int(self.cfg.baseline_buf_len))
@@ -107,7 +107,8 @@ class Model:
             "sigma_mean": [],
             "sigma_joint_0": [],
             "sigma_joint_1": [],
-            "sigma_joint_2": [],  
+            "sigma_joint_2": [],
+            "entropy": [],
         }
 
         self.test: Dict[str, List[float]] = {
@@ -172,6 +173,7 @@ class Model:
                 "sigma_joint_0": float("nan"),
                 "sigma_joint_1": float("nan"),
                 "sigma_joint_2": float("nan"),
+                "entropy": float("nan"),
             }
             self._append_train(metrics)
             return metrics
@@ -202,6 +204,7 @@ class Model:
             "sigma_joint_0": float("nan"),
             "sigma_joint_1": float("nan"),
             "sigma_joint_2": float("nan"),
+            "entropy": float("nan"),
         }
 
         # 4. ПРОВЕРКА: Если набрали достаточно шагов — пора обновляться
@@ -241,20 +244,16 @@ class Model:
         epoch_losses = []
         epoch_kls = []
         grad_norms = []
+        epoch_entropies = []
         final_sigmas = None 
 
-        # 3. training loop (PPO Epochs)
-        # we can choose the number of epochs 
-        for _ in range(10): 
-            # get the distribution for the current policy
+        # 3. training loop (PPO Epochs) with entropy bonus & KL early stopping
+        for _ in range(self.cfg.ppo_epochs): 
             mu, sigma = self.policy(b_states)
             dist = Normal(mu, sigma)
             
-            # Считаем логарифм вероятности ТЕХ ЖЕ действий при НОВОЙ политике
             new_log_probs = dist.log_prob(b_actions).sum(dim=-1)
             
-            # Ratio (отношение вероятностей)
-            # ratio = exp(log_new - log_old)
             log_ratio = new_log_probs - b_log_probs
             ratio = torch.exp(log_ratio)
 
@@ -262,15 +261,20 @@ class Model:
                 approx_kl = ((ratio - 1) - log_ratio).mean().item()
                 epoch_kls.append(approx_kl)
 
+            # KL early stopping — prevent destructive updates
+            if approx_kl > self.cfg.target_kl:
+                break
+
             # PPO Clip Objective
-            eps = 0.2 # Коэффициент клиппирования (обычно 0.1 - 0.2)
+            eps = 0.2
             surr1 = ratio * advantages
             surr2 = torch.clamp(ratio, 1.0 - eps, 1.0 + eps) * advantages
-            
-            # Берем минимум и меняем знак (так как оптимизатор минимизирует)
-            loss = -torch.min(surr1, surr2).mean()
+            policy_loss = -torch.min(surr1, surr2).mean()
 
-            # Шаг градиента
+            # Entropy bonus — encourage exploration
+            entropy = dist.entropy().sum(dim=-1).mean()
+            loss = policy_loss - self.cfg.entropy_coef * entropy
+
             self.optimizer.zero_grad(set_to_none=True)
             loss.backward()
             grad_norm = torch.nn.utils.clip_grad_norm_(self.policy.parameters(), self.cfg.grad_clip_norm)
@@ -278,9 +282,9 @@ class Model:
 
             epoch_losses.append(loss.item())
             grad_norms.append(grad_norm.item() if hasattr(grad_norm, "item") else grad_norm)
+            epoch_entropies.append(entropy.item())
             sigmas_per_joint = sigma.detach().mean(dim=0).cpu().numpy() 
 
-        # Обновляем планировщик обучения один раз после всех эпох
         self.scheduler.step()
 
         res = {
@@ -291,6 +295,7 @@ class Model:
             "sigma_joint_0": float(sigmas_per_joint[0]),
             "sigma_joint_1": float(sigmas_per_joint[1]),
             "sigma_joint_2": float(sigmas_per_joint[2]),
+            "entropy": float(np.mean(epoch_entropies)) if epoch_entropies else float("nan"),
         }
         
         return res
