@@ -10,8 +10,8 @@ from .config import ObstacleConfig
 
 @dataclass
 class Obstacle:
-    center: np.ndarray  # shape (2,), [x, y] in pixels
-    radius: float       # radius in pixels
+    center: np.ndarray
+    radius: float
 
     def __post_init__(self) -> None:
         self.center = np.asarray(self.center, dtype=float)
@@ -34,7 +34,6 @@ class ObstacleManager:
         ]
 
     def randomize(self) -> None:
-        """Jitter each obstacle around its base position within jitter_radius (only if cfg.random)."""
         if not self.cfg.random:
             return
         jr = self.cfg.jitter_radius

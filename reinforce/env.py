@@ -53,11 +53,9 @@ class Environment:
         self._prev_action = None
         self._curr_action = None
 
-        # Stagnation tracking
         self._dist_history: List[float] = []
 
     def check_collision(self, joints: np.ndarray) -> bool:
-        """Check if any robot link segment collides with any obstacle."""
         for obs in self.obstacle_manager.obstacles:
             r = obs.radius + self._collision_threshold
             for i in range(len(joints) - 1):
@@ -76,7 +74,6 @@ class Environment:
         self.robot.reset(randomize=self.robot.cfg.randomize_theta)
         ee_start = self.robot.end_effector_xy()
 
-        # Генерация цели с учётом текущего положения ee и препятствий
         if self.env_cfg.randomize_target:
             self.target = self._sample_valid_target(ee_start)
 
@@ -140,8 +137,9 @@ class Environment:
                 collision = info.get("reason") == "collision"
                 self.model.finish_episode(success=self.success, collision=collision, final_distance=final_dist)
             else:
+                collision = info.get("reason") == "collision"
                 self.model.record_test_episode(
-                    success=self.success, final_distance=final_dist, steps=int(self.steps)
+                    success=self.success, collision=collision, final_distance=final_dist, steps=int(self.steps)
                 )
 
             self._needs_reset = True
@@ -222,31 +220,15 @@ class Environment:
         ee = joints[-1]
         dist = float(np.linalg.norm(ee - self.target))
 
-        # 1. Base reward for approaching the target and step penalty
         progress = float(self._prev_dist - dist)
         reward = float(self.rew_cfg.progress_scale) * progress - float(self.rew_cfg.step_penalty)
 
-        # 1b. Distance-adaptive progress boost — amplify signal near the goal
         if dist < self.rew_cfg.progress_boost_radius:
             boost = 1.0 + self.rew_cfg.progress_near_boost * (
                 1.0 - dist / self.rew_cfg.progress_boost_radius
             )
             reward += float(self.rew_cfg.progress_scale) * progress * (boost - 1.0)
 
-        # 2. Joint velocity penalty (squared velocities)
-        if self._curr_action is not None and self.rew_cfg.joint_velocity_scale != 0.0:
-            vel_sq = float(np.dot(self._curr_action, self._curr_action))
-            reward -= float(self.rew_cfg.joint_velocity_scale) * vel_sq
-
-        # 3. Action delta / smoothness penalty
-        if self._curr_action is not None and self._prev_action is not None and self.rew_cfg.action_delta_scale != 0.0:
-            delta_a = self._curr_action - self._prev_action
-            accel_sq = float(np.dot(delta_a, delta_a))
-            reward -= float(self.rew_cfg.action_delta_scale) * accel_sq
-
-        # 4. Lidar-based obstacle proximity penalty (per-lidar, smooth)
-        #    For each lidar, take the closest reading; if below threshold
-        #    apply a squared penalty — smooth, bounded, one value per lidar.
         all_readings = current_state.lidar_rays
         n_rays = self.robot.lidar_manager.cfg.num_rays
         n_lidars = self.robot.lidar_manager.n_lidars
@@ -254,13 +236,9 @@ class Environment:
         for i in range(n_lidars):
             lidar_min = float(np.min(all_readings[i * n_rays : (i + 1) * n_rays]))
             if lidar_min < danger_threshold:
-                # Quadratic ramp: 0 at threshold, 1 at contact
                 proximity = (1.0 - lidar_min / danger_threshold) ** 2
                 reward -= float(self.rew_cfg.obstacle_danger_penalty) * proximity
-        
-        # 5. Stagnation detection — terminate if stuck OR oscillating
-        #    Stuck: mean |per-step progress| < thresh  (not moving at all)
-        #    Oscillating: net |dist change| over window < thresh  (moving but going nowhere)
+
         self._dist_history.append(dist)
         stagnation_done = False
         win = self.rew_cfg.stagnation_window
@@ -271,13 +249,11 @@ class Environment:
             if mean_progress < self.rew_cfg.stagnation_thresh or net_progress < self.rew_cfg.stagnation_thresh:
                 stagnation_done = True
 
-        # Check collision
         collision = self.check_collision(joints)
         fail_reason = ""
         if collision:
             fail = True
             fail_reason = "collision"
-            # Heavy penalty for collision
             reward -= float(self.rew_cfg.collision_penalty)
         else:
             fail = False
@@ -321,7 +297,6 @@ class Environment:
         return float(reward), bool(done), info
 
 
-
 def _point_to_segment_distance(p: np.ndarray, a: np.ndarray, b: np.ndarray) -> float:
     p = np.asarray(p, dtype=float).reshape(2)
     a = np.asarray(a, dtype=float).reshape(2)
@@ -336,7 +311,6 @@ def _point_to_segment_distance(p: np.ndarray, a: np.ndarray, b: np.ndarray) -> f
     t = max(0.0, min(1.0, t))
     proj = a + t * ab
     return float(np.linalg.norm(p - proj))
-
 
 if __name__ == "__main__":
     raise RuntimeError("Run main.py instead.")

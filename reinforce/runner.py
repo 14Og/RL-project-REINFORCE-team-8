@@ -65,41 +65,22 @@ from .config import (
     RobotConfig,
 )
 from .env import Environment
+from .model_ppo import Model
 
 
 # ---------------------------------------------------------------------------
 # Notebook detection
 # ---------------------------------------------------------------------------
 
+
 def _is_notebook() -> bool:
     try:
         from IPython import get_ipython
+
         return get_ipython() is not None
     except ImportError:
         return False
 
-
-# ---------------------------------------------------------------------------
-# Protocol — anything that looks like a Model
-# ---------------------------------------------------------------------------
-
-class _ModelLike(Protocol):
-    def start_episode(self) -> None: ...
-    def select_action(self, state: np.ndarray, *, train: bool) -> np.ndarray: ...
-    def observe(self, reward: float) -> None: ...
-    def finish_episode(self, *, success: bool, collision: bool = False, final_distance: Optional[float] = None) -> Dict: ...
-    def record_test_episode(self, *, success: bool, final_distance: float, steps: int) -> None: ...
-    def get_train_metrics(self) -> Dict[str, list]: ...
-    def get_test_metrics(self) -> Dict[str, list]: ...
-    def set_train_mode(self) -> None: ...
-    def set_eval_mode(self) -> None: ...
-    def save(self, path: str, **kwargs: Any) -> None: ...
-    def load(self, path: str, **kwargs: Any) -> None: ...
-
-
-# ---------------------------------------------------------------------------
-# Helper
-# ---------------------------------------------------------------------------
 
 def compute_obs_dim(robot_cfg: RobotConfig, lidar_cfg: LidarConfig) -> int:
     """Compute flat observation dimension from config (no robot instantiation needed).
@@ -113,10 +94,6 @@ def compute_obs_dim(robot_cfg: RobotConfig, lidar_cfg: LidarConfig) -> int:
     n_lidars = n_dof * (int(lidar_cfg.lidar_joints) + int(lidar_cfg.lidar_midlinks))
     return 2 * n_dof + 4 + n_lidars * lidar_cfg.num_rays
 
-
-# ---------------------------------------------------------------------------
-# Runner
-# ---------------------------------------------------------------------------
 
 class Runner:
     """Unified training/evaluation loop.
@@ -145,7 +122,7 @@ class Runner:
         lidar_cfg: LidarConfig,
         obstacle_cfg: ObstacleConfig,
         gui_cfg: GUIConfig,
-        model: _ModelLike,
+        model: Model,
         seed: int = 42,
         pygame_renderer: Optional[Any] = None,
         progress_every: int = 100,
@@ -219,7 +196,11 @@ class Runner:
 
         # Pygame batches multiple env steps per rendered frame for speed.
         # Headless mode also batches to avoid per-step Python loop overhead.
-        spf = self.gui_cfg.steps_per_frame if self.pygame_renderer is not None else self.gui_cfg.steps_per_frame_no_sim
+        spf = (
+            self.gui_cfg.steps_per_frame
+            if self.pygame_renderer is not None
+            else self.gui_cfg.steps_per_frame_no_sim
+        )
 
         while episode_count < n_episodes:
 
@@ -264,10 +245,7 @@ class Runner:
                     ):
                         self._update_live_plot(mode)
 
-                    if (
-                        self.pygame_renderer is not None
-                        and self.gui_cfg.pause_on_done_frames > 0
-                    ):
+                    if self.pygame_renderer is not None and self.gui_cfg.pause_on_done_frames > 0:
                         pause_frames_left = self.gui_cfg.pause_on_done_frames
                         break
 
@@ -276,9 +254,7 @@ class Runner:
 
             # ---- render frame (pygame only) ----
             if self.pygame_renderer is not None:
-                self.pygame_renderer.render(
-                    env.get_render_data(), mode, episode_count, n_episodes
-                )
+                self.pygame_renderer.render(env.get_render_data(), mode, episode_count, n_episodes)
 
         # Ensure the final episode batch is reflected in the plot.
         self._update_live_plot(mode)
@@ -317,6 +293,7 @@ class Runner:
         if mode == "train":
             # 4 rows × 2 cols; last row spans both columns for success rate
             from matplotlib.gridspec import GridSpec
+
             gs = GridSpec(4, 2, figure=self._fig, hspace=0.35, wspace=0.25)
             self._axes = (
                 self._fig.add_subplot(gs[0, 0]),  # ax1: total reward
@@ -361,6 +338,7 @@ class Runner:
 
         if _is_notebook():
             from IPython.display import display, clear_output
+
             clear_output(wait=True)
             display(self._fig)
         else:
@@ -373,7 +351,7 @@ class Runner:
         win = 50
         """Clear and redraw the axes from current model metrics."""
         assert self._axes is not None
-        
+
         if mode == "train":
             ax1, ax2, ax3, ax4, ax5, ax6, ax7 = self._axes
             for ax in self._axes:
@@ -420,15 +398,33 @@ class Runner:
             if sigma0.size:
                 valid_sigma0 = sigma0[~np.isnan(sigma0)]
                 if valid_sigma0.size > 0:
-                    ax4.plot(*_downsample(valid_sigma0), lw=1.2, color="#FF5252", label="joint_0", alpha=0.8)
+                    ax4.plot(
+                        *_downsample(valid_sigma0),
+                        lw=1.2,
+                        color="#FF5252",
+                        label="joint_0",
+                        alpha=0.8,
+                    )
             if sigma1.size:
                 valid_sigma1 = sigma1[~np.isnan(sigma1)]
                 if valid_sigma1.size > 0:
-                    ax4.plot(*_downsample(valid_sigma1), lw=1.2, color="#2196F3", label="joint_1", alpha=0.8)
+                    ax4.plot(
+                        *_downsample(valid_sigma1),
+                        lw=1.2,
+                        color="#2196F3",
+                        label="joint_1",
+                        alpha=0.8,
+                    )
             if sigma2.size:
                 valid_sigma2 = sigma2[~np.isnan(sigma2)]
                 if valid_sigma2.size > 0:
-                    ax4.plot(*_downsample(valid_sigma2), lw=1.2, color="#4CAF50", label="joint_2", alpha=0.8)
+                    ax4.plot(
+                        *_downsample(valid_sigma2),
+                        lw=1.2,
+                        color="#4CAF50",
+                        label="joint_2",
+                        alpha=0.8,
+                    )
             ax4.set_title("sigma (policy std)", fontsize=9)
             ax4.set_xlabel("update", fontsize=8)
             ax4.legend(fontsize=7, loc="best")
@@ -447,7 +443,9 @@ class Runner:
                 valid_entropy = entropy[~np.isnan(entropy)]
                 if valid_entropy.size > 0:
                     ax6.plot(*_downsample(valid_entropy), alpha=0.3, lw=0.5, color="#607D8B")
-                    ax6.plot(*_downsample(_running_mean(valid_entropy, win)), lw=1.8, color="#455A64")
+                    ax6.plot(
+                        *_downsample(_running_mean(valid_entropy, win)), lw=1.8, color="#455A64"
+                    )
             ax6.set_title(f"entropy (ma={win})", fontsize=9)
             ax6.set_xlabel("update", fontsize=8)
             ax6.grid(True, alpha=0.3)
@@ -465,10 +463,10 @@ class Runner:
             ax1.clear()
             ax2.clear()
             ax3.clear()
-            
+
             m = self.model.get_test_metrics()
             s = np.asarray(m.get("success", []), dtype=np.float32)
-            dist = np.asarray(m.get("final_distance", []), dtype=np.float32)
+            coll = np.asarray(m.get("collision", []), dtype=np.float32)
             steps = np.asarray(m.get("steps", []), dtype=np.float32)
 
             if s.size:
@@ -478,14 +476,10 @@ class Runner:
             ax1.set_xlabel("episode", fontsize=8)
             ax1.grid(True, alpha=0.3)
 
-            if dist.size:
-                ax2.plot(dist, color="#F44336", lw=0.8)
-                ax2.axhline(
-                    float(dist.mean()), color="#B71C1C", ls="--", lw=1.2,
-                    label=f"mean={dist.mean():.2f}",
-                )
-                ax2.legend(fontsize=7)
-            ax2.set_title("final distance")
+            if coll.size:
+                ax2.plot(np.cumsum(coll) / np.arange(1, coll.size + 1), lw=1.8, color="#F44336")
+            ax2.set_ylim(-0.05, 1.05)
+            ax2.set_title("cumulative collision rate")
             ax2.set_xlabel("episode", fontsize=8)
             ax2.grid(True, alpha=0.3)
 

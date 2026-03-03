@@ -8,22 +8,14 @@ from .obstacle import Obstacle
 
 
 class Lidar:
-    """Single 360° lidar sensor mounted at a point on the robot body."""
-
     def __init__(self, num_rays: int, ray_maxlen: float) -> None:
         self.ray_maxlen = ray_maxlen
-        self.position = np.zeros(2, dtype=float)  # updated each step by LidarManager
+        self.position = np.zeros(2, dtype=float)
 
-        # Precompute fixed unit ray directions, shape (num_rays, 2)
         angles = np.linspace(0, 2 * math.pi, num_rays, endpoint=False)
         self.ray_dirs = np.stack([np.cos(angles), np.sin(angles)], axis=1)
 
     def scan(self, obstacles: List[Obstacle]) -> np.ndarray:
-        """Cast all rays against obstacles.
-        Returns normalized distances, shape (num_rays,). Values in [0, 1]:
-            1.0 — no hit within ray_maxlen
-            t/ray_maxlen — hit at distance t
-        """
         n = len(self.ray_dirs)
         readings = np.ones(n, dtype=float)
 
@@ -44,15 +36,11 @@ class Lidar:
 
 
 class LidarManager:
-    """Owns all lidars attached to a robot and orchestrates scanning."""
-
     def __init__(self, cfg: LidarConfig, n_dof: int) -> None:
         self.cfg = cfg
         self.n_dof = n_dof
         self._obstacles: List[Obstacle] = []
 
-        # n_dof joint lidars (joints 1..n_dof, excluding base)
-        # + n_dof midlink lidars (midpoint of each link), depending on config
         n_lidars = n_dof * (int(cfg.lidar_joints) + int(cfg.lidar_midlinks))
         self.lidars: List[Lidar] = [Lidar(cfg.num_rays, cfg.ray_maxlen_px) for _ in range(n_lidars)]
 
@@ -68,23 +56,17 @@ class LidarManager:
         self._obstacles = obstacles
 
     def update_positions(self, joints: np.ndarray) -> None:
-        """Update lidar mount positions from current joint array.
-
-        joints: shape (n_dof+1, 2) — joints[0]=base, joints[1..n_dof]=joint positions.
-        Joint lidars are placed at joints[1..n_dof]; midlink lidars at midpoints of each link.
-        """
         idx = 0
         if self.cfg.lidar_joints:
-            for i in range(1, self.n_dof + 1):  # skip base (index 0)
+            for i in range(1, self.n_dof + 1):
                 self.lidars[idx].position = joints[i].copy()
                 idx += 1
         if self.cfg.lidar_midlinks:
-            for i in range(self.n_dof):  # midpoint between joints[i] and joints[i+1]
+            for i in range(self.n_dof):
                 self.lidars[idx].position = ((joints[i] + joints[i + 1]) / 2.0).copy()
                 idx += 1
 
     def scan(self) -> np.ndarray:
-        """Scan all lidars. Returns flat array, shape (n_lidars * num_rays,)."""
         return np.concatenate([lidar.scan(self._obstacles) for lidar in self.lidars])
 
 

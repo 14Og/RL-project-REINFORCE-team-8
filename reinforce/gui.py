@@ -1,17 +1,3 @@
-"""
-PygameRenderer — handles all pygame display for Runner.
-
-The Runner owns the episode loop and the matplotlib Figure.
-PygameRenderer is responsible for:
-  - Managing the pygame window lifecycle (init / quit)
-  - Handling keyboard / quit events
-  - Drawing the robot simulation panel
-  - Converting the matplotlib figure to a cached pygame surface and blitting it
-
-There is no training logic here.  Swap this out for None in Runner to go fully
-headless without touching any other code.
-"""
-
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
@@ -43,12 +29,7 @@ class PygameRenderer:
         self.clock = pygame.time.Clock()
         self.font = pygame.font.SysFont(None, 20)
 
-        # Cached plot surface — updated only when notify_figure_updated() is called.
         self._plot_surface: Optional[pygame.Surface] = None
-
-    # ------------------------------------------------------------------
-    # Called by Runner
-    # ------------------------------------------------------------------
 
     def handle_events(self, paused: bool) -> Tuple[bool, bool]:
         """Drain the event queue.  Returns ``(quit_requested, paused)``."""
@@ -72,9 +53,7 @@ class PygameRenderer:
         fig.canvas.draw()
         rgba = np.asarray(fig.canvas.buffer_rgba())
         rgb = rgba[..., :3]
-        surf = pygame.surfarray.make_surface(
-            np.transpose(np.ascontiguousarray(rgb), (1, 0, 2))
-        )
+        surf = pygame.surfarray.make_surface(np.transpose(np.ascontiguousarray(rgb), (1, 0, 2)))
         plot_w = self.cfg.window_size[0] - self.cfg.sim_width
         plot_h = self.cfg.window_size[1]
         self._plot_surface = pygame.transform.smoothscale(surf, (plot_w, plot_h))
@@ -92,32 +71,24 @@ class PygameRenderer:
 
         self.screen.fill((245, 245, 245))
 
-        # ---- sim panel (left) ----------------------------------------
         pygame.draw.rect(self.screen, (255, 255, 255), pygame.Rect(0, 0, sim_w, h))
         self._draw_scene(render_data)
         pygame.draw.line(self.screen, (200, 200, 200), (sim_w, 0), (sim_w, h), 2)
 
-        # ---- plot panel (right) ----------------------------------------
         if self._plot_surface is not None:
             self.screen.blit(self._plot_surface, (sim_w, 0))
 
-        # ---- HUD -------------------------------------------------------
         dist = render_data.get("distance", 0.0)
         step = render_data.get("step", 0)
-        hud = (
-            f"mode={mode}  ep={episode}/{n_episodes}  "
-            f"step={step}  dist={dist:.1f}"
-        )
+        hud = f"mode={mode}  ep={episode}/{n_episodes}  " f"step={step}  dist={dist:.1f}"
         self.screen.blit(self.font.render(hud, True, (20, 20, 20)), (10, 10))
 
-        # ---- Lidar values display -------------------------------------------------------
         lidar_data = render_data.get("lidar", [])
         y_offset = 35
         for i, lidar_info in enumerate(lidar_data):
             pos = lidar_info.get("position", np.zeros(2))
             readings = lidar_info.get("readings", np.array([]))
-            
-            # Display lidar position and summary stats
+
             if len(readings) > 0:
                 min_reading = float(np.min(readings))
                 max_reading = float(np.max(readings))
@@ -128,7 +99,7 @@ class PygameRenderer:
                 )
             else:
                 lidar_text = f"Lidar {i}: pos=({pos[0]:.1f},{pos[1]:.1f})  (no readings)"
-            
+
             self.screen.blit(self.font.render(lidar_text, True, (60, 60, 60)), (10, y_offset))
             y_offset += 25
 
@@ -139,40 +110,37 @@ class PygameRenderer:
 
     def close(self) -> None:
         import matplotlib.pyplot as plt
+
         plt.close("all")
         pygame.quit()
 
-    # ------------------------------------------------------------------
-    # Scene drawing
-    # ------------------------------------------------------------------
-
     def _draw_scene(self, render: Dict[str, Any]) -> None:
-        joints: np.ndarray = render["joints"]        # (n+1, 2)
-        target: np.ndarray = render["target"]        # (2,)
+        joints: np.ndarray = render["joints"]  # (n+1, 2)
+        target: np.ndarray = render["target"]  # (2,)
         obstacles: List[Dict] = render.get("obstacles", [])
 
         # Obstacles
         for obs in obstacles:
             cx = int(obs["center"][0])
             cy = int(obs["center"][1])
-            r  = int(obs["radius"])
+            r = int(obs["radius"])
             pygame.draw.circle(self.screen, (180, 100, 100), (cx, cy), r)
-            pygame.draw.circle(self.screen, (140, 55, 55),   (cx, cy), r, 2)
+            pygame.draw.circle(self.screen, (140, 55, 55), (cx, cy), r, 2)
 
-        # Robot links
         pts = [(int(joints[i, 0]), int(joints[i, 1])) for i in range(joints.shape[0])]
         pygame.draw.lines(self.screen, (50, 50, 50), False, pts, 6)
 
-        # Joint dots
         for p in pts:
             pygame.draw.circle(self.screen, (80, 80, 80), p, 8)
 
-        # Target circle + threshold ring
         tx, ty = int(target[0]), int(target[1])
         pygame.draw.circle(self.screen, (220, 50, 50), (tx, ty), 6)
         pygame.draw.circle(
-            self.screen, (220, 50, 50), (tx, ty),
-            max(1, int(self.env_cfg.target_thresh)), 1,
+            self.screen,
+            (220, 50, 50),
+            (tx, ty),
+            max(1, int(self.env_cfg.target_thresh)),
+            1,
         )
 
 

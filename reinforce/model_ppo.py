@@ -11,14 +11,9 @@ from torch.distributions import Normal
 from collections import deque
 from typing import Deque, Dict, List, Optional, Tuple, Union
 
+
 class GaussianMLPPolicy(nn.Module):
-    def __init__(
-        self,
-        obs_dim: int,
-        act_dim: int,
-        cfg: ModelConfig,
-        action_limit: float,
-    ) -> None:
+    def __init__(self, obs_dim: int, act_dim: int, cfg: ModelConfig, action_limit: float) -> None:
         super().__init__()
         self.cfg = cfg
         layers: list[nn.Module] = []
@@ -56,20 +51,16 @@ class Model:
         max_steps: int = 200,
         policy: Optional[nn.Module] = None,
         device: Optional[str] = None,
-        
     ) -> None:
         self.cfg = cfg
         if not (0.0 < self.cfg.gamma <= 1.0):
             raise ValueError("gamma must be in (0, 1].")
-        
+
         self.device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
 
         if policy is None:
             policy = GaussianMLPPolicy(
-                obs_dim=obs_dim,
-                act_dim=act_dim,
-                cfg=self.cfg,
-                action_limit=action_limit
+                obs_dim=obs_dim, act_dim=act_dim, cfg=self.cfg, action_limit=action_limit
             )
         self.policy = policy.to(self.device)
         self.optimizer = torch.optim.Adam(self.policy.parameters(), lr=float(self.cfg.lr_start))
@@ -86,36 +77,25 @@ class Model:
         self._rewards: List[float] = []
         self._steps: int = 0
 
-        #buffer for PPO
         self.buffer_states: List[torch.Tensor] = []
         self.buffer_actions: List[torch.Tensor] = []
         self.buffer_log_probs: List[torch.Tensor] = []
         self.buffer_rewards: List[float] = []
         self.buffer_terminals: List[bool] = []
-
         self.buffer_step_count = 0
 
         self.train: Dict[str, List[float]] = {
-            "total_reward": [],
-            "success": [],
-            "collision": [],
-            "steps": [],
-            "final_distance": [],
-            "loss": [],
-            "baseline": [],
-            "grad_norm": [],
-            "kl_div": [],          
-            "sigma_mean": [],
-            "sigma_joint_0": [],
-            "sigma_joint_1": [],
-            "sigma_joint_2": [],
+            "total_reward": [], "success": [], "collision": [],
+            "steps": [], "final_distance": [], "loss": [],
+            "baseline": [], "grad_norm": [], "kl_div": [],
+            "sigma_mean": [], "sigma_joint_0": [],
+            "sigma_joint_1": [], "sigma_joint_2": [],
             "entropy": [],
         }
 
         self.test: Dict[str, List[float]] = {
-            "success": [],
-            "final_distance": [],
-            "steps": [],
+            "success": [], "collision": [],
+            "final_distance": [], "steps": [],
         }
 
     def start_episode(self) -> None:
@@ -149,40 +129,33 @@ class Model:
         return u.squeeze(0).cpu().numpy()
 
     def observe(self, reward: float) -> None:
-            self._rewards.append(float(reward))
-    
+        self._rewards.append(float(reward))
+
     def should_update(self) -> bool:
-        """Is it time to update the policy based on the collected experience?"""
         return self.buffer_step_count >= self.cfg.batch_size_limit
-    
-    def finish_episode(self, *, success: bool, collision: bool = False, final_distance: Optional[float] = None) -> Dict[str, float]:
+
+    def finish_episode(self, *, success: bool, collision: bool = False,
+                       final_distance: Optional[float] = None) -> Dict[str, float]:
         total_reward = float(sum(self._rewards))
-        baseline = float(np.mean(self.baseline_buffer)) if self.baseline_buffer else 0.0
 
         if not self._rewards or not self._log_probs:
             metrics = {
-                "total_reward": 0.0,
-                "success": float(bool(success)),
-                "collision": float(bool(collision)),
-                "steps": 0.0,
+                "total_reward": 0.0, "success": float(bool(success)),
+                "collision": float(bool(collision)), "steps": 0.0,
                 "final_distance": float(final_distance) if final_distance is not None else float("nan"),
                 "loss": float("nan"),
                 "baseline": float(np.mean(self.baseline_buffer)) if self.baseline_buffer else 0.0,
-                "grad_norm": float("nan"),
-                "kl_div": float("nan"),
-                "sigma_mean": float("nan"),
-                "sigma_joint_0": float("nan"),
-                "sigma_joint_1": float("nan"),
-                "sigma_joint_2": float("nan"),
+                "grad_norm": float("nan"), "kl_div": float("nan"),
+                "sigma_mean": float("nan"), "sigma_joint_0": float("nan"),
+                "sigma_joint_1": float("nan"), "sigma_joint_2": float("nan"),
                 "entropy": float("nan"),
             }
             self._append_train(metrics)
             return metrics
 
         returns = self._discounted_returns(self._rewards, self.cfg.gamma).to(self.device)
-
         episode_return = float(returns[0].item())
-        
+
         self.buffer_states.extend(self._states)
         self.buffer_actions.extend(self._actions)
         self.buffer_log_probs.extend(self._log_probs)
@@ -190,37 +163,26 @@ class Model:
         self.buffer_step_count += len(self._rewards)
         self.baseline_buffer.append(episode_return)
 
-    
         metrics = {
-            "total_reward": total_reward,
-            "success": float(bool(success)),
-            "collision": float(bool(collision)),
-            "steps": float(len(self._rewards)),
+            "total_reward": total_reward, "success": float(bool(success)),
+            "collision": float(bool(collision)), "steps": float(len(self._rewards)),
             "final_distance": float(final_distance) if final_distance is not None else float("nan"),
-            "loss": float("nan"),
-            "baseline": float(np.mean(self.baseline_buffer)),
-            "grad_norm": float("nan"),
-            "kl_div": float("nan"),
-            "sigma_mean": float("nan"),
-            "sigma_joint_0": float("nan"),
-            "sigma_joint_1": float("nan"),
-            "sigma_joint_2": float("nan"),
+            "loss": float("nan"), "baseline": float(np.mean(self.baseline_buffer)),
+            "grad_norm": float("nan"), "kl_div": float("nan"),
+            "sigma_mean": float("nan"), "sigma_joint_0": float("nan"),
+            "sigma_joint_1": float("nan"), "sigma_joint_2": float("nan"),
             "entropy": float("nan"),
         }
 
-        # 4. ПРОВЕРКА: Если набрали достаточно шагов — пора обновляться
         if self.should_update():
-            # Метод для обновления мы напишем на следующем шаге
-            ppo_metrics = self._update_ppo() 
+            ppo_metrics = self._update_ppo()
             metrics.update(ppo_metrics)
-            # Очищаем буферы батча после обучения
             self._clear_batch_buffers()
 
         self._append_train(metrics)
         return metrics
-    
+
     def _clear_batch_buffers(self) -> None:
-        """Очистка больших буферов после обновления сети"""
         self.buffer_states.clear()
         self.buffer_actions.clear()
         self.buffer_log_probs.clear()
@@ -229,14 +191,11 @@ class Model:
         self.buffer_step_count = 0
 
     def _update_ppo(self) -> Dict[str, float]:
-        # 1. Переводим накопленные списки в тензоры
-        # .detach() — these are "old policy" data; no gradient should flow through them.
-        b_states = torch.stack(self.buffer_states).detach().to(self.device)       # [Batch, Obs_dim]
-        b_actions = torch.stack(self.buffer_actions).detach().to(self.device)     # [Batch, Act_dim]
-        b_log_probs = torch.stack(self.buffer_log_probs).detach().to(self.device) # [Batch]
-        b_returns = torch.tensor(self.buffer_rewards, dtype=torch.float32).to(self.device) # [Batch]
+        b_states = torch.stack(self.buffer_states).detach().to(self.device)
+        b_actions = torch.stack(self.buffer_actions).detach().to(self.device)
+        b_log_probs = torch.stack(self.buffer_log_probs).detach().to(self.device)
+        b_returns = torch.tensor(self.buffer_rewards, dtype=torch.float32).to(self.device)
 
-        # 2. Считаем Advantage (normalised across the full batch)
         with torch.no_grad():
             advantages = (b_returns - b_returns.mean()) / (b_returns.std() + 1e-8)
 
@@ -250,9 +209,7 @@ class Model:
         epoch_entropies = []
         final_sigmas = None
 
-        # 3. PPO epochs with mini-batch shuffling & KL early stopping
         for _ in range(self.cfg.ppo_epochs):
-            # Check KL on full batch BEFORE doing any mini-batch updates this epoch
             with torch.no_grad():
                 mu_full, sigma_full = self.policy(b_states)
                 dist_full = Normal(mu_full, sigma_full)
@@ -267,7 +224,6 @@ class Model:
             if approx_kl > self.cfg.target_kl:
                 break
 
-            # Shuffle and iterate in mini-batches
             indices = torch.randperm(batch_size, device=self.device)
             for start in range(0, batch_size, mbs):
                 mb_idx = indices[start : start + mbs]
@@ -283,12 +239,10 @@ class Model:
                 log_ratio = new_log_probs - mb_log_probs
                 ratio = torch.exp(log_ratio)
 
-                # PPO Clip Objective
                 surr1 = ratio * mb_advantages
                 surr2 = torch.clamp(ratio, 1.0 - eps, 1.0 + eps) * mb_advantages
                 policy_loss = -torch.min(surr1, surr2).mean()
 
-                # Entropy bonus
                 entropy = dist.entropy().sum(dim=-1).mean()
                 loss = policy_loss - self.cfg.entropy_coef * entropy
 
@@ -303,7 +257,7 @@ class Model:
         self.scheduler.step()
 
         sigmas_per_joint = final_sigmas if final_sigmas is not None else np.zeros(3)
-        res = {
+        return {
             "loss": float(np.mean(epoch_losses)) if epoch_losses else float("nan"),
             "grad_norm": float(np.mean(grad_norms)) if grad_norms else float("nan"),
             "kl_div": float(np.mean(epoch_kls)) if epoch_kls else float("nan"),
@@ -314,10 +268,10 @@ class Model:
             "entropy": float(np.mean(epoch_entropies)) if epoch_entropies else float("nan"),
         }
 
-        return res
-    
-    def record_test_episode(self, *, success: bool, final_distance: float, steps: int) -> None:
+    def record_test_episode(self, *, success: bool, collision: bool,
+                            final_distance: float, steps: int) -> None:
         self.test["success"].append(float(bool(success)))
+        self.test["collision"].append(float(bool(collision)))
         self.test["final_distance"].append(float(final_distance))
         self.test["steps"].append(float(steps))
 
@@ -347,9 +301,7 @@ class Model:
         return torch.tensor(out, dtype=torch.float32)
 
     def save(self, path: str, *, include_optimizer: bool = False, include_metrics: bool = False) -> None:
-        ckpt = {
-            "policy_state_dict": self.policy.state_dict(),
-        }
+        ckpt = {"policy_state_dict": self.policy.state_dict()}
         if include_optimizer:
             ckpt["optimizer_state_dict"] = self.optimizer.state_dict()
         if include_metrics:
@@ -375,4 +327,3 @@ class Model:
 
 if __name__ == "__main__":
     raise RuntimeError("Run main.py instead.")
-

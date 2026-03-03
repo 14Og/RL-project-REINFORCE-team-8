@@ -8,6 +8,7 @@ import numpy as np
 import math
 from typing import List, Optional, Tuple
 
+
 class Robot:
     def __init__(self, robot_cfg: RobotConfig, lidar_cfg: LidarConfig,
                  obstacles: List[Obstacle], seed: int = 42,
@@ -16,12 +17,12 @@ class Robot:
         self.rng = np.random.default_rng(seed)
 
         self.base = np.asarray(self.cfg.base_xy, dtype=float)
-        self.links = np.asarray(self.cfg.link_lengths, dtype=float)  # shape (n_dof,)
+        self.links = np.asarray(self.cfg.link_lengths, dtype=float)
         self.n_dof: int = len(self.links)
         self._reach_max: float = float(np.sum(self.links))
 
         self._theta = np.zeros(self.n_dof, dtype=float)
-        self._target: np.ndarray = self.base.copy()  # set by env via set_target()
+        self._target: np.ndarray = self.base.copy()
 
         self._lidar_manager = LidarManager(lidar_cfg, self.n_dof)
         self._lidar_manager.set_obstacles(obstacles)
@@ -31,7 +32,6 @@ class Robot:
 
     @property
     def theta(self) -> np.ndarray:
-        """Joint angles (copy), shape (n_dof,), radians."""
         return self._theta.copy()
 
     @property
@@ -39,15 +39,12 @@ class Robot:
         return self._lidar_manager
 
     def set_target(self, target: np.ndarray) -> None:
-        """Update the target position used for dist_x/dist_y in obs()."""
         self._target = np.asarray(target, dtype=float)
 
     def set_obstacles(self, obstacles: List[Obstacle]) -> None:
-        """Update obstacle list in LidarManager (for dynamic obstacles)."""
         self._lidar_manager.set_obstacles(obstacles)
 
     def joints_xy(self) -> np.ndarray:
-        """Returns joint positions including base, shape (n_dof+1, 2)."""
         points = [self.base]
         cumulative_angle = 0.0
         p = self.base
@@ -61,7 +58,6 @@ class Robot:
         return self.joints_xy()[-1]
 
     def obs(self) -> State:
-        """Build full RL observation. All spatial values normalized by reach_max."""
         joints = self.joints_xy()
         ee = joints[-1]
 
@@ -84,15 +80,6 @@ class Robot:
 
     def reset(self, randomize: bool = True, n_angle_candidates: int = 36,
               greedy_attempts: int = 5, collision_threshold: float = 0.05) -> State:
-        """Reset robot to a collision-free pose.
-
-        Uses greedy joint-by-joint placement: for each joint, samples
-        n_angle_candidates discrete angles and picks randomly from valid ones
-        (those whose new segment doesn't hit any obstacle). Falls back to the
-        least-constrained candidate if all are blocked. A small number of
-        greedy_attempts handles the rare case where an early greedy choice
-        blocks a later joint.
-        """
         if not randomize:
             if self.cfg.initial_thetas is not None:
                 self._theta[:] = np.array(self.cfg.initial_thetas, dtype=float)[:self.n_dof]
@@ -112,7 +99,6 @@ class Robot:
             success = True
 
             for i, L in enumerate(self.links):
-                # Shuffle candidates for randomness
                 shuffled = self.rng.permutation(candidates)
                 valid = []
                 clearances = []
@@ -128,7 +114,6 @@ class Robot:
                 if valid:
                     theta[i] = self.rng.choice(valid)
                 else:
-                    # No fully clear angle — pick the one with maximum clearance
                     theta[i] = max(clearances, key=lambda x: x[0])[1]
                     success = False
 
@@ -145,9 +130,6 @@ class Robot:
     @staticmethod
     def _segment_min_clearance(p1: np.ndarray, p2: np.ndarray,
                                 obstacles: list, threshold: float) -> float:
-        """Return the minimum clearance between a segment and all obstacles minus threshold.
-        Positive means no collision; zero or negative means collision.
-        """
         min_clearance = math.inf
         vec = p2 - p1
         denom = float(np.dot(vec, vec)) + 1e-6
