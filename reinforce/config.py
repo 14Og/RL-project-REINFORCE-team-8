@@ -5,7 +5,7 @@ from typing import Tuple, Optional, List
 class RobotConfig:
     base_xy: Tuple[float, float] = (400, 600)
     #! num of DoFs is determined by this field
-    link_lengths: Tuple[float, ...] = (100, 70, 50) 
+    link_lengths: Tuple[float, ...] = (100, 70, 40) 
     wrap_angles: bool = True
     dtheta_max: Optional[float] = 0.3
 
@@ -40,15 +40,15 @@ class ModelConfig:
     log_std_min: float = -2.0
     log_std_max: float = 0.5
     entropy_coef: float = 0.01            # entropy bonus coefficient
-    target_kl: float = 0.02               # KL early stopping threshold
+    target_kl: float = 0.015              # KL early stopping threshold
     ppo_epochs: int = 10                  # max PPO epochs per update
     n_ppo_updates: int = 500              # expected total PPO updates (for LR scheduler)
 
 @dataclass
 class RewardConfig:
     progress_scale: float = 0.15
-    progress_near_boost: float = 10.0     # extra multiplier when ee is within boost_radius of target
-    progress_boost_radius: float = 100.0  # px – distance at which boost starts ramping up
+    progress_near_boost: float = 3.0      # extra multiplier when ee is within boost_radius of target
+    progress_boost_radius: float = 80.0   # px – distance at which boost starts ramping up
     step_penalty: float = 0.005
     goal_reward: float = 15.0
     fail_penalty: float = 5.0
@@ -79,9 +79,9 @@ class EnvConfig:
 class GUIConfig:
     window_size: Tuple[int, int] = (2000, 1200)
     sim_width: int = 800
-    plot_update_every: int = 50
+    plot_update_every: int = 10
     pause_on_done_frames: int = 0
-    steps_per_frame: int = 20
+    steps_per_frame: int = 10
     steps_per_frame_no_sim: int = 1000
     model_path: str = "policy/best_policy.pt"
     train_episodes: int = 5000
