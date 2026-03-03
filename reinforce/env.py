@@ -258,14 +258,17 @@ class Environment:
                 proximity = (1.0 - lidar_min / danger_threshold) ** 2
                 reward -= float(self.rew_cfg.obstacle_danger_penalty) * proximity
         
-        # 5. Stagnation detection — terminate if mean |progress| over window < threshold
+        # 5. Stagnation detection — terminate if stuck OR oscillating
+        #    Stuck: mean |per-step progress| < thresh  (not moving at all)
+        #    Oscillating: net |dist change| over window < thresh  (moving but going nowhere)
         self._dist_history.append(dist)
         stagnation_done = False
         win = self.rew_cfg.stagnation_window
         if len(self._dist_history) >= win:
             dists = self._dist_history[-win:]
             mean_progress = sum(abs(dists[i] - dists[i+1]) for i in range(len(dists)-1)) / (len(dists)-1)
-            if mean_progress < self.rew_cfg.stagnation_thresh:
+            net_progress = abs(dists[-1] - dists[0])
+            if mean_progress < self.rew_cfg.stagnation_thresh or net_progress < self.rew_cfg.stagnation_thresh:
                 stagnation_done = True
 
         # Check collision

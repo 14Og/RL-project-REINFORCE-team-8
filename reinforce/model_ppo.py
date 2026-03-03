@@ -53,6 +53,7 @@ class Model:
         cfg: ModelConfig,
         action_limit: float,
         train_episodes: int,
+        max_steps: int = 200,
         policy: Optional[nn.Module] = None,
         device: Optional[str] = None,
         
@@ -72,8 +73,9 @@ class Model:
             )
         self.policy = policy.to(self.device)
         self.optimizer = torch.optim.Adam(self.policy.parameters(), lr=float(self.cfg.lr_start))
+        n_ppo_updates = max(1, (train_episodes * max_steps) // self.cfg.batch_size_limit)
         self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            self.optimizer, T_max=int(self.cfg.n_ppo_updates), eta_min=float(self.cfg.lr_min)
+            self.optimizer, T_max=n_ppo_updates, eta_min=float(self.cfg.lr_min)
         )
 
         self.baseline_buffer: Deque[float] = deque(maxlen=int(self.cfg.baseline_buf_len))
@@ -92,7 +94,6 @@ class Model:
         self.buffer_terminals: List[bool] = []
 
         self.buffer_step_count = 0
-        self.batch_size_limit = 2048 
 
         self.train: Dict[str, List[float]] = {
             "total_reward": [],
@@ -152,7 +153,7 @@ class Model:
     
     def should_update(self) -> bool:
         """Is it time to update the policy based on the collected experience?"""
-        return self.buffer_step_count >= self.batch_size_limit
+        return self.buffer_step_count >= self.cfg.batch_size_limit
     
     def finish_episode(self, *, success: bool, collision: bool = False, final_distance: Optional[float] = None) -> Dict[str, float]:
         total_reward = float(sum(self._rewards))

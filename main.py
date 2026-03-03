@@ -21,7 +21,7 @@ def parse_args() -> ap.Namespace:
     return p.parse_args()
 
 
-def _build_model(args, robot_cfg, lidar_cfg, model_cfg, gui_cfg):
+def _build_model(args, robot_cfg, lidar_cfg, model_cfg, gui_cfg, env_cfg):
     """Construct a PPO Model."""
     from reinforce.runner import compute_obs_dim
     from reinforce.model_ppo import Model
@@ -31,6 +31,7 @@ def _build_model(args, robot_cfg, lidar_cfg, model_cfg, gui_cfg):
         obs_dim=obs_dim,
         act_dim=len(robot_cfg.link_lengths),
         cfg=model_cfg,
+        max_steps=env_cfg.max_steps,
         action_limit=robot_cfg.dtheta_max,
         train_episodes=gui_cfg.train_episodes,
     )
@@ -52,7 +53,7 @@ def main() -> None:
     gui_cfg.test_episodes  = args.test_episodes  or gui_cfg.test_episodes
     gui_cfg.model_path     = args.model_path     or gui_cfg.model_path
 
-    model = _build_model(args, robot_cfg, lidar_cfg, model_cfg, gui_cfg)
+    model = _build_model(args, robot_cfg, lidar_cfg, model_cfg, gui_cfg, env_cfg)
 
     from reinforce.runner import Runner
 

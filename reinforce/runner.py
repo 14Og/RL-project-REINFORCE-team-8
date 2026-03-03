@@ -30,6 +30,7 @@ Typical notebook usage
         cfg=model_cfg,
         action_limit=robot_cfg.dtheta_max,
         train_episodes=gui_cfg.train_episodes,
+        max_steps=EnvConfig().max_steps,
     )
     runner = Runner(
         env_cfg=EnvConfig(), reward_cfg=RewardConfig(),

@@ -7,7 +7,7 @@ class RobotConfig:
     #! num of DoFs is determined by this field
     link_lengths: Tuple[float, ...] = (100, 70, 40) 
     wrap_angles: bool = True
-    dtheta_max: Optional[float] = 0.3
+    dtheta_max: Optional[float] = 0.5
 
 @dataclass(frozen=True)
 class LidarConfig:
@@ -34,7 +34,7 @@ class ObstacleConfig:
 class ModelConfig:
     gamma: float = 0.97
     lr_start: float = 3e-4
-    lr_min: float = 1e-5
+    lr_min: float = 1e-6
     baseline_buf_len: int = 200
     grad_clip_norm: float = 1.0
     hidden_sizes: Tuple[int, ...] = (256, 128)
@@ -45,7 +45,7 @@ class ModelConfig:
     clip_epsilon: float = 0.15            # PPO clip range
     ppo_epochs: int = 10                  # max PPO epochs per update
     mini_batch_size: int = 256            # mini-batch size within each PPO epoch
-    n_ppo_updates: int = 500              # expected total PPO updates (for LR scheduler)
+    batch_size_limit: int = 2048          # steps to collect before PPO update
 
 @dataclass
 class RewardConfig:
