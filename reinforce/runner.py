@@ -217,8 +217,8 @@ class Runner:
         pause_frames_left = 0
 
         # Pygame batches multiple env steps per rendered frame for speed.
-        # Headless runs one step per outer iteration — no render overhead anyway.
-        spf = self.gui_cfg.steps_per_frame if self.pygame_renderer is not None else 1
+        # Headless mode also batches to avoid per-step Python loop overhead.
+        spf = self.gui_cfg.steps_per_frame if self.pygame_renderer is not None else self.gui_cfg.steps_per_frame_no_sim
 
         while episode_count < n_episodes:
 

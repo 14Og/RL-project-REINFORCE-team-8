@@ -46,22 +46,22 @@ class ModelConfig:
 
 @dataclass
 class RewardConfig:
-    progress_scale: float = 0.03
+    progress_scale: float = 0.15
     progress_near_boost: float = 10.0     # extra multiplier when ee is within boost_radius of target
     progress_boost_radius: float = 100.0  # px – distance at which boost starts ramping up
-    step_penalty: float = 0.02
-    goal_reward: float = 50.0
-    fail_penalty: float = 15.0
-    joint_velocity_scale: float = 0.1     # penalty on squared joint velocity
-    action_delta_scale: float = 0.1       # penalty on squared change in action
+    step_penalty: float = 0.005
+    goal_reward: float = 15.0
+    fail_penalty: float = 5.0
+    joint_velocity_scale: float = 0.02     # penalty on squared joint velocity
+    action_delta_scale: float = 0.02       # penalty on squared change in action
     # Lidar-based obstacle avoidance penalty (per-lidar smoothed)
     obstacle_danger_threshold: float = 0.15    # Lidar reading below this = danger zone
     obstacle_danger_penalty: float = 0.15      # Penalty scale per lidar in danger zone
-    collision_penalty: float = 25.0            # Heavy penalty for actual collision
+    collision_penalty: float = 10.0            # Heavy penalty for actual collision
     # Stagnation penalty — punish the robot for not making progress
     stagnation_window: int = 15               # number of steps to check for progress
     stagnation_thresh: float = 2.0            # min distance change over window to not be "stuck"
-    stagnation_penalty: float = 0.1           # penalty per step while stagnating (ramps up)
+    stagnation_penalty: float = 0.05           # penalty per step while stagnating (ramps up)
 
 @dataclass
 class EnvConfig:
@@ -81,8 +81,8 @@ class GUIConfig:
     sim_width: int = 800
     plot_update_every: int = 50
     pause_on_done_frames: int = 0
-    steps_per_frame: int = 10
-    steps_per_frame_no_sim: int = 200
+    steps_per_frame: int = 20
+    steps_per_frame_no_sim: int = 1000
     model_path: str = "policy/best_policy.pt"
     train_episodes: int = 5000
     test_episodes: int = 300
