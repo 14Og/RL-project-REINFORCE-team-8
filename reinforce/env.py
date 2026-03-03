@@ -68,12 +68,12 @@ class Environment:
                     return True
         return False
 
-    def reset_episode(self, *, train: bool = True, randomize_theta: bool = True) -> np.ndarray:
+    def reset_episode(self, *, train: bool = True) -> np.ndarray:
         self._train_mode = bool(train)
 
         self.obstacle_manager.randomize()
         self.robot.set_obstacles(self.obstacle_manager.obstacles)
-        self.robot.reset(randomize=randomize_theta)
+        self.robot.reset(randomize=self.robot.cfg.randomize_theta)
         ee_start = self.robot.end_effector_xy()
 
         # Генерация цели с учётом текущего положения ee и препятствий
@@ -106,7 +106,7 @@ class Environment:
 
     def step(self) -> Tuple[np.ndarray, float, bool, Dict[str, Any]]:
         if self._needs_reset:
-            obs0 = self.reset_episode(train=self._train_mode, randomize_theta=True)
+            obs0 = self.reset_episode(train=self._train_mode)
             return obs0, 0.0, False, {"reset": True}
 
         if self.done:

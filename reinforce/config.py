@@ -1,13 +1,21 @@
 from dataclasses import dataclass, field
 from typing import Tuple, Optional, List
 
+import numpy as np
 @dataclass(frozen=True)
 class RobotConfig:
+    
+    @staticmethod
+    def theta_default() -> Tuple:
+        return (np.pi, np.pi, np.pi)
+    
     base_xy: Tuple[float, float] = (400, 600)
     #! num of DoFs is determined by this field
     link_lengths: Tuple[float, ...] = (100, 70, 40) 
     wrap_angles: bool = True
-    dtheta_max: Optional[float] = 0.5
+    dtheta_max: Optional[float] = 0.3
+    initial_thetas: Optional[Tuple[float, ...]] = field(default_factory=theta_default)  # starting angles; None = zeros
+    randomize_theta: bool = False                         # randomize joint angles on reset
 
 @dataclass(frozen=True)
 class LidarConfig:
@@ -59,7 +67,7 @@ class RewardConfig:
     action_delta_scale: float = 0.0        # penalty on squared change in action (disabled — adds noise)
     # Lidar-based obstacle avoidance penalty (per-lidar smoothed)
     obstacle_danger_threshold: float = 0.15    # Lidar reading below this = danger zone
-    obstacle_danger_penalty: float = 0.15      # Penalty scale per lidar in danger zone
+    obstacle_danger_penalty: float = 0.05      # Penalty scale per lidar in danger zone (light — collision_penalty is the real deterrent)
     collision_penalty: float = 10.0            # Heavy penalty for actual collision
     # Stagnation — terminate episode if robot is not making progress
     stagnation_window: int = 15               # number of steps to check for progress

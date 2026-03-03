@@ -94,7 +94,10 @@ class Robot:
         blocks a later joint.
         """
         if not randomize:
-            self._theta[:] = 0.0
+            if self.cfg.initial_thetas is not None:
+                self._theta[:] = np.array(self.cfg.initial_thetas, dtype=float)[:self.n_dof]
+            else:
+                self._theta[:] = 0.0
             if self.cfg.wrap_angles:
                 self._theta = np.array([self.wrap_angle(t) for t in self._theta], dtype=float)
             return self.obs()
