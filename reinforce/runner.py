@@ -369,6 +369,7 @@ class Runner:
             plt.pause(0.001)
 
     def _draw_metrics(self, mode: str) -> None:
+        win = 50
         """Clear and redraw the axes from current model metrics."""
         assert self._axes is not None
         
@@ -391,16 +392,16 @@ class Runner:
             # Row 0, Col 0: Total reward
             if r.size:
                 ax1.plot(*_downsample(r), alpha=0.3, lw=0.5, color="#2196F3")
-                ax1.plot(*_downsample(_running_mean(r, 10)), lw=1.8, color="#1565C0")
-            ax1.set_title("total reward (ma=10)", fontsize=9)
+                ax1.plot(*_downsample(_running_mean(r, win)), lw=1.8, color="#1565C0")
+            ax1.set_title(f"total reward (ma={win})", fontsize=9)
             ax1.set_xlabel("episode", fontsize=8)
             ax1.grid(True, alpha=0.3)
 
             # Row 0, Col 1: Steps/episode
             if steps.size:
                 ax2.plot(*_downsample(steps), alpha=0.3, lw=0.5, color="#FF9800")
-                ax2.plot(*_downsample(_running_mean(steps, 10)), lw=1.8, color="#E65100")
-            ax2.set_title("steps / episode (ma=10)", fontsize=9)
+                ax2.plot(*_downsample(_running_mean(steps, win)), lw=1.8, color="#E65100")
+            ax2.set_title(f"steps / episode (ma={win})", fontsize=9)
             ax2.set_xlabel("episode", fontsize=8)
             ax2.grid(True, alpha=0.3)
 
@@ -409,8 +410,8 @@ class Runner:
                 valid_kl = kl[~np.isnan(kl)]
                 if valid_kl.size > 0:
                     ax3.plot(*_downsample(valid_kl), alpha=0.3, lw=0.5, color="#9C27B0")
-                    ax3.plot(*_downsample(_running_mean(valid_kl, 10)), lw=1.8, color="#6A1B9A")
-            ax3.set_title("KL divergence (ma=10)", fontsize=9)
+                    ax3.plot(*_downsample(_running_mean(valid_kl, win)), lw=1.8, color="#6A1B9A")
+            ax3.set_title(f"KL divergence (ma={win})", fontsize=9)
             ax3.set_xlabel("update", fontsize=8)
             ax3.grid(True, alpha=0.3)
 
@@ -445,8 +446,8 @@ class Runner:
                 valid_entropy = entropy[~np.isnan(entropy)]
                 if valid_entropy.size > 0:
                     ax6.plot(*_downsample(valid_entropy), alpha=0.3, lw=0.5, color="#607D8B")
-                    ax6.plot(*_downsample(_running_mean(valid_entropy, 10)), lw=1.8, color="#455A64")
-            ax6.set_title("entropy (ma=10)", fontsize=9)
+                    ax6.plot(*_downsample(_running_mean(valid_entropy, win)), lw=1.8, color="#455A64")
+            ax6.set_title(f"entropy (ma={win})", fontsize=9)
             ax6.set_xlabel("update", fontsize=8)
             ax6.grid(True, alpha=0.3)
 

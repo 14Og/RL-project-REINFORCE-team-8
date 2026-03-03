@@ -51,11 +51,11 @@ class RewardConfig:
     progress_scale: float = 0.15
     progress_near_boost: float = 3.0      # extra multiplier when ee is within boost_radius of target
     progress_boost_radius: float = 80.0   # px – distance at which boost starts ramping up
-    step_penalty: float = 0.01
+    step_penalty: float = 0.005
     goal_reward: float = 50.0
     fail_penalty: float = 15.0
-    joint_velocity_scale: float = 0.02     # penalty on squared joint velocity
-    action_delta_scale: float = 0.02       # penalty on squared change in action
+    joint_velocity_scale: float = 0.0      # penalty on squared joint velocity (disabled — adds noise)
+    action_delta_scale: float = 0.0        # penalty on squared change in action (disabled — adds noise)
     # Lidar-based obstacle avoidance penalty (per-lidar smoothed)
     obstacle_danger_threshold: float = 0.15    # Lidar reading below this = danger zone
     obstacle_danger_penalty: float = 0.15      # Penalty scale per lidar in danger zone
