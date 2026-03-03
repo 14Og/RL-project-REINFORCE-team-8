@@ -51,9 +51,9 @@ class RewardConfig:
     progress_scale: float = 0.15
     progress_near_boost: float = 3.0      # extra multiplier when ee is within boost_radius of target
     progress_boost_radius: float = 80.0   # px – distance at which boost starts ramping up
-    step_penalty: float = 0.005
-    goal_reward: float = 15.0
-    fail_penalty: float = 5.0
+    step_penalty: float = 0.01
+    goal_reward: float = 50.0
+    fail_penalty: float = 15.0
     joint_velocity_scale: float = 0.02     # penalty on squared joint velocity
     action_delta_scale: float = 0.02       # penalty on squared change in action
     # Lidar-based obstacle avoidance penalty (per-lidar smoothed)
@@ -81,9 +81,9 @@ class EnvConfig:
 class GUIConfig:
     window_size: Tuple[int, int] = (2000, 1200)
     sim_width: int = 800
-    plot_update_every: int = 10
+    plot_update_every: int = 2
     pause_on_done_frames: int = 0
-    steps_per_frame: int = 10
+    steps_per_frame: int = 1
     steps_per_frame_no_sim: int = 1000
     model_path: str = "policy/best_policy.pt"
     train_episodes: int = 5000
