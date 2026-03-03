@@ -14,19 +14,27 @@ Typical notebook usage
 ::
 
     from reinforce.runner import Runner, compute_obs_dim
-    from reinforce.mock_model import MockModel
+    from reinforce.model_ppo import Model
     from reinforce.config import (
-        RobotConfig, LidarConfig, EnvConfig, RewardConfig, ObstacleConfig, GUIConfig,
+        RobotConfig, LidarConfig, EnvConfig, RewardConfig, ObstacleConfig, GUIConfig, ModelConfig,
     )
 
-    robot_cfg = RobotConfig()
+    robot_cfg  = RobotConfig()
     lidar_cfg  = LidarConfig()
-    model      = MockModel(act_dim=len(robot_cfg.link_lengths),
-                           action_limit=robot_cfg.dtheta_max)
+    model_cfg  = ModelConfig()
+    gui_cfg    = GUIConfig()
+    obs_dim    = compute_obs_dim(robot_cfg, lidar_cfg)
+    model      = Model(
+        obs_dim=obs_dim,
+        act_dim=len(robot_cfg.link_lengths),
+        cfg=model_cfg,
+        action_limit=robot_cfg.dtheta_max,
+        train_episodes=gui_cfg.train_episodes,
+    )
     runner = Runner(
         env_cfg=EnvConfig(), reward_cfg=RewardConfig(),
         robot_cfg=robot_cfg, lidar_cfg=lidar_cfg,
-        obstacle_cfg=ObstacleConfig(), gui_cfg=GUIConfig(), model=model,
+        obstacle_cfg=ObstacleConfig(), gui_cfg=gui_cfg, model=model,
     )
     runner.train(episodes=500)   # live plot updates inline every plot_update_every ep
     runner.test(episodes=100)
@@ -71,14 +79,14 @@ def _is_notebook() -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Protocol — anything that looks like Model / MockModel
+# Protocol — anything that looks like a Model
 # ---------------------------------------------------------------------------
 
 class _ModelLike(Protocol):
     def start_episode(self) -> None: ...
     def select_action(self, state: np.ndarray, *, train: bool) -> np.ndarray: ...
     def observe(self, reward: float) -> None: ...
-    def finish_episode(self, *, success: bool, final_distance: Optional[float]) -> Dict: ...
+    def finish_episode(self, *, success: bool, collision: bool = False, final_distance: Optional[float] = None) -> Dict: ...
     def record_test_episode(self, *, success: bool, final_distance: float, steps: int) -> None: ...
     def get_train_metrics(self) -> Dict[str, list]: ...
     def get_test_metrics(self) -> Dict[str, list]: ...
@@ -115,7 +123,7 @@ class Runner:
     Parameters
     ----------
     model :
-        Pre-built Model or MockModel instance.  The runner never constructs the
+        Pre-built Model instance.  The runner never constructs the
         model so the caller controls obs_dim, architecture, checkpoints, etc.
     pygame_renderer :
         ``None`` (default) → headless mode.

@@ -7,7 +7,7 @@ import numpy as np
 from .config import EnvConfig, LidarConfig, ObstacleConfig, RewardConfig, RobotConfig
 from .obstacle import Obstacle, ObstacleManager
 from .robot import Robot
-from .model import Model
+from .model_ppo import Model
 
 
 class Environment:
@@ -129,7 +129,8 @@ class Environment:
             self.reason = str(info.get("reason", "done"))
 
             if self._train_mode:
-                self.model.finish_episode(success=self.success, final_distance=final_dist)
+                collision = info.get("reason") == "collision"
+                self.model.finish_episode(success=self.success, collision=collision, final_distance=final_dist)
             else:
                 self.model.record_test_episode(
                     success=self.success, final_distance=final_dist, steps=int(self.steps)

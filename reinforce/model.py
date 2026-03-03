@@ -126,7 +126,7 @@ class Model:
     def observe(self, reward: float) -> None:
         self._rewards.append(float(reward))
 
-    def finish_episode(self, *, success: bool, final_distance: Optional[float] = None) -> Dict[str, float]:
+    def finish_episode(self, *, success: bool, collision: bool = False, final_distance: Optional[float] = None) -> Dict[str, float]:
         total_reward = float(sum(self._rewards))
         baseline = float(np.mean(self.baseline_buffer)) if self.baseline_buffer else 0.0
 

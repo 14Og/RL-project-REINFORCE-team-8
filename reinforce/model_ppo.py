@@ -153,7 +153,7 @@ class Model:
         """Is it time to update the policy based on the collected experience?"""
         return self.buffer_step_count >= self.batch_size_limit
     
-    def finish_episode(self, *, success: bool, collision: bool, final_distance: Optional[float] = None) -> Dict[str, float]:
+    def finish_episode(self, *, success: bool, collision: bool = False, final_distance: Optional[float] = None) -> Dict[str, float]:
         total_reward = float(sum(self._rewards))
         baseline = float(np.mean(self.baseline_buffer)) if self.baseline_buffer else 0.0
 
@@ -226,9 +226,10 @@ class Model:
 
     def _update_ppo(self) -> Dict[str, float]:
         # 1. Переводим накопленные списки в тензоры
-        b_states = torch.stack(self.buffer_states).to(self.device)   # [Batch, Obs_dim]
-        b_actions = torch.stack(self.buffer_actions).to(self.device) # [Batch, Act_dim]
-        b_log_probs = torch.stack(self.buffer_log_probs).to(self.device) # [Batch]
+        # .detach() — these are "old policy" data; no gradient should flow through them.
+        b_states = torch.stack(self.buffer_states).detach().to(self.device)       # [Batch, Obs_dim]
+        b_actions = torch.stack(self.buffer_actions).detach().to(self.device)     # [Batch, Act_dim]
+        b_log_probs = torch.stack(self.buffer_log_probs).detach().to(self.device) # [Batch]
         b_returns = torch.tensor(self.buffer_rewards, dtype=torch.float32).to(self.device) # [Batch]
 
         # 2. Считаем Advantage
@@ -277,7 +278,7 @@ class Model:
 
             epoch_losses.append(loss.item())
             grad_norms.append(grad_norm.item() if hasattr(grad_norm, "item") else grad_norm)
-            sigmas_per_joint = sigma.mean(dim=0).cpu().numpy() 
+            sigmas_per_joint = sigma.detach().mean(dim=0).cpu().numpy() 
 
         # Обновляем планировщик обучения один раз после всех эпох
         self.scheduler.step()

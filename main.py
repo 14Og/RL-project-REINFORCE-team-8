@@ -14,10 +14,6 @@ def parse_args() -> ap.Namespace:
         "--no-sim", action="store_true",
         help="Headless mode: no pygame window, live matplotlib plots only."
     )
-    p.add_argument(
-        "--mock", action="store_true",
-        help="Use a random-action MockModel to stress-test env mechanics."
-    )
     p.add_argument("--model-path", type=str, default=None)
     p.add_argument("--train-episodes", type=int, default=None)
     p.add_argument("--test-episodes", type=int, default=None)
@@ -26,18 +22,10 @@ def parse_args() -> ap.Namespace:
 
 
 def _build_model(args, robot_cfg, lidar_cfg, model_cfg, gui_cfg):
-    """Construct either a MockModel or a real Model depending on --mock flag."""
+    """Construct a PPO Model."""
     from reinforce.runner import compute_obs_dim
+    from reinforce.model_ppo import Model
 
-    if args.mock:
-        from reinforce.mock_model import MockModel
-        return MockModel(
-            act_dim=len(robot_cfg.link_lengths),
-            action_limit=float(robot_cfg.dtheta_max),
-            seed=int(args.seed),
-        )
-
-    from reinforce.model import Model
     obs_dim = compute_obs_dim(robot_cfg, lidar_cfg)
     return Model(
         obs_dim=obs_dim,
@@ -86,8 +74,7 @@ def main() -> None:
 
         if args.train:
             runner.train()
-            if not args.mock:
-                runner.save_model()
+            runner.save_model()
         else:
             runner.test(model_path=gui_cfg.model_path)
 
