@@ -24,7 +24,7 @@ class Lidar:
             for obs in obstacles:
                 oc = self.position - obs.center
                 b = 2.0 * float(np.dot(d, oc))
-                c = float(np.dot(oc, oc)) - obs.radius ** 2
+                c = float(np.dot(oc, oc)) - obs.radius**2
                 disc = b * b - 4.0 * c
                 if disc >= 0:
                     t = (-b - math.sqrt(disc)) / 2.0

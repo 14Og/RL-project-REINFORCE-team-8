@@ -89,7 +89,7 @@ class Environment:
 
         ee = self.robot.end_effector_xy()
         self._prev_dist = float(np.linalg.norm(ee - self.target))
-        
+
         self._prev_action = None
         self._curr_action = None
 
@@ -135,11 +135,16 @@ class Environment:
 
             if self._train_mode:
                 collision = info.get("reason") == "collision"
-                self.model.finish_episode(success=self.success, collision=collision, final_distance=final_dist)
+                self.model.finish_episode(
+                    success=self.success, collision=collision, final_distance=final_dist
+                )
             else:
                 collision = info.get("reason") == "collision"
                 self.model.record_test_episode(
-                    success=self.success, collision=collision, final_distance=final_dist, steps=int(self.steps)
+                    success=self.success,
+                    collision=collision,
+                    final_distance=final_dist,
+                    steps=int(self.steps),
                 )
 
             self._needs_reset = True
@@ -204,12 +209,17 @@ class Environment:
     def _sample_valid_target(self, ee_start: np.ndarray, max_attempts: int = 1000) -> np.ndarray:
         for _ in range(max_attempts):
             angle = self._rng.uniform(0, 2 * np.pi)
-            r = np.sqrt(self._rng.uniform(self._reach_min ** 2, self._reach_max ** 2))
-            candidate = self._base + np.array([r * np.cos(angle), r * np.sin(angle)], dtype=np.float32)
+            r = np.sqrt(self._rng.uniform(self._reach_min**2, self._reach_max**2))
+            candidate = self._base + np.array(
+                [r * np.cos(angle), r * np.sin(angle)], dtype=np.float32
+            )
             if self._is_target_valid(candidate, ee_start):
                 return candidate
         import warnings
-        warnings.warn("Could not sample a valid target after many attempts, using fallback.", RuntimeWarning)
+
+        warnings.warn(
+            "Could not sample a valid target after many attempts, using fallback.", RuntimeWarning
+        )
         return self._base + np.array([self._reach_max * 0.5, 0.0], dtype=np.float32)
 
     def _get_state(self) -> State:
@@ -244,9 +254,14 @@ class Environment:
         win = self.rew_cfg.stagnation_window
         if len(self._dist_history) >= win:
             dists = self._dist_history[-win:]
-            mean_progress = sum(abs(dists[i] - dists[i+1]) for i in range(len(dists)-1)) / (len(dists)-1)
+            mean_progress = sum(abs(dists[i] - dists[i + 1]) for i in range(len(dists) - 1)) / (
+                len(dists) - 1
+            )
             net_progress = abs(dists[-1] - dists[0])
-            if mean_progress < self.rew_cfg.stagnation_thresh or net_progress < self.rew_cfg.stagnation_thresh:
+            if (
+                mean_progress < self.rew_cfg.stagnation_thresh
+                or net_progress < self.rew_cfg.stagnation_thresh
+            ):
                 stagnation_done = True
 
         collision = self.check_collision(joints)
@@ -257,7 +272,7 @@ class Environment:
             reward -= float(self.rew_cfg.collision_penalty)
         else:
             fail = False
-            
+
         goal_reached = dist < float(self.env_cfg.target_thresh)
 
         if self.env_cfg.forbid_link_target_intersection and (not goal_reached):
@@ -311,6 +326,7 @@ def _point_to_segment_distance(p: np.ndarray, a: np.ndarray, b: np.ndarray) -> f
     t = max(0.0, min(1.0, t))
     proj = a + t * ab
     return float(np.linalg.norm(p - proj))
+
 
 if __name__ == "__main__":
     raise RuntimeError("Run main.py instead.")

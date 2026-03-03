@@ -11,6 +11,7 @@ from torch.distributions import Normal
 from collections import deque
 from typing import Deque, Dict, List, Optional, Tuple, Union
 
+
 class GaussianMLPPolicy(nn.Module):
     def __init__(
         self,
@@ -59,15 +60,12 @@ class Model:
         self.cfg = cfg
         if not (0.0 < self.cfg.gamma <= 1.0):
             raise ValueError("gamma must be in (0, 1].")
-        
+
         self.device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
 
         if policy is None:
             policy = GaussianMLPPolicy(
-                obs_dim=obs_dim,
-                act_dim=act_dim,
-                cfg=self.cfg,
-                action_limit=action_limit
+                obs_dim=obs_dim, act_dim=act_dim, cfg=self.cfg, action_limit=action_limit
             )
         self.policy = policy.to(self.device)
         self.optimizer = torch.optim.Adam(self.policy.parameters(), lr=float(self.cfg.lr_start))
@@ -126,7 +124,9 @@ class Model:
     def observe(self, reward: float) -> None:
         self._rewards.append(float(reward))
 
-    def finish_episode(self, *, success: bool, collision: bool = False, final_distance: Optional[float] = None) -> Dict[str, float]:
+    def finish_episode(
+        self, *, success: bool, collision: bool = False, final_distance: Optional[float] = None
+    ) -> Dict[str, float]:
         total_reward = float(sum(self._rewards))
         baseline = float(np.mean(self.baseline_buffer)) if self.baseline_buffer else 0.0
 
@@ -135,7 +135,9 @@ class Model:
                 "total_reward": total_reward,
                 "success": float(bool(success)),
                 "steps": float(self._steps),
-                "final_distance": float(final_distance) if final_distance is not None else float("nan"),
+                "final_distance": (
+                    float(final_distance) if final_distance is not None else float("nan")
+                ),
                 "loss": float("nan"),
                 "baseline": baseline,
                 "grad_norm": float("nan"),
@@ -153,7 +155,9 @@ class Model:
 
         self.optimizer.zero_grad(set_to_none=True)
         loss.backward()
-        grad_norm = torch.nn.utils.clip_grad_norm_(self.policy.parameters(), self.cfg.grad_clip_norm)
+        grad_norm = torch.nn.utils.clip_grad_norm_(
+            self.policy.parameters(), self.cfg.grad_clip_norm
+        )
         self.optimizer.step()
         self.scheduler.step()
 
@@ -166,7 +170,9 @@ class Model:
             "final_distance": float(final_distance) if final_distance is not None else float("nan"),
             "loss": float(loss.item()),
             "baseline": baseline,
-            "grad_norm": float(grad_norm.item()) if hasattr(grad_norm, "item") else float(grad_norm),
+            "grad_norm": (
+                float(grad_norm.item()) if hasattr(grad_norm, "item") else float(grad_norm)
+            ),
         }
         self._append_train(metrics)
         return metrics
@@ -201,7 +207,9 @@ class Model:
         out.reverse()
         return torch.tensor(out, dtype=torch.float32)
 
-    def save(self, path: str, *, include_optimizer: bool = False, include_metrics: bool = False) -> None:
+    def save(
+        self, path: str, *, include_optimizer: bool = False, include_metrics: bool = False
+    ) -> None:
         ckpt = {
             "policy_state_dict": self.policy.state_dict(),
         }
@@ -230,4 +238,3 @@ class Model:
 
 if __name__ == "__main__":
     raise RuntimeError("Run main.py instead.")
-

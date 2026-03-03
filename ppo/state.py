@@ -4,8 +4,15 @@ import numpy as np
 
 
 class State:
-    def __init__(self, thetas: np.ndarray, ee_x: float, ee_y: float,
-                 dist_x: float, dist_y: float, rays: np.ndarray) -> None:
+    def __init__(
+        self,
+        thetas: np.ndarray,
+        ee_x: float,
+        ee_y: float,
+        dist_x: float,
+        dist_y: float,
+        rays: np.ndarray,
+    ) -> None:
         self.thetas = np.asarray(thetas, dtype=float)
         self.ee_x: float = float(ee_x)
         self.ee_y: float = float(ee_y)

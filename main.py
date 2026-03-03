@@ -1,6 +1,6 @@
 import argparse as ap
 
-from reinforce.config import RobotConfig, EnvConfig, RewardConfig, GUIConfig, ModelConfig, LidarConfig, ObstacleConfig
+from ppo.config import RobotConfig, EnvConfig, RewardConfig, GUIConfig, ModelConfig, LidarConfig, ObstacleConfig
 
 def parse_args() -> ap.Namespace:
     p = ap.ArgumentParser()
@@ -23,8 +23,8 @@ def parse_args() -> ap.Namespace:
 
 def _build_model(args, robot_cfg, lidar_cfg, model_cfg, gui_cfg, env_cfg):
     """Construct a PPO Model."""
-    from reinforce.runner import compute_obs_dim
-    from reinforce.model_ppo import Model
+    from ppo.runner import compute_obs_dim
+    from ppo.model_ppo import Model
 
     obs_dim = compute_obs_dim(robot_cfg, lidar_cfg)
     return Model(
@@ -55,7 +55,7 @@ def main() -> None:
 
     model = _build_model(args, robot_cfg, lidar_cfg, model_cfg, gui_cfg, env_cfg)
 
-    from reinforce.runner import Runner
+    from ppo.runner import Runner
 
     if args.no_sim:
         # ----------------------------------------------------------------
@@ -86,7 +86,7 @@ def main() -> None:
         # ----------------------------------------------------------------
         # Pygame path — PygameRenderer injected into the same Runner
         # ----------------------------------------------------------------
-        from reinforce.gui import PygameRenderer
+        from ppo.gui import PygameRenderer
 
         if args.test:
             model.load(gui_cfg.model_path, load_optimizer=False)

@@ -85,17 +85,27 @@ class Model:
         self.buffer_step_count = 0
 
         self.train: Dict[str, List[float]] = {
-            "total_reward": [], "success": [], "collision": [],
-            "steps": [], "final_distance": [], "loss": [],
-            "baseline": [], "grad_norm": [], "kl_div": [],
-            "sigma_mean": [], "sigma_joint_0": [],
-            "sigma_joint_1": [], "sigma_joint_2": [],
+            "total_reward": [],
+            "success": [],
+            "collision": [],
+            "steps": [],
+            "final_distance": [],
+            "loss": [],
+            "baseline": [],
+            "grad_norm": [],
+            "kl_div": [],
+            "sigma_mean": [],
+            "sigma_joint_0": [],
+            "sigma_joint_1": [],
+            "sigma_joint_2": [],
             "entropy": [],
         }
 
         self.test: Dict[str, List[float]] = {
-            "success": [], "collision": [],
-            "final_distance": [], "steps": [],
+            "success": [],
+            "collision": [],
+            "final_distance": [],
+            "steps": [],
         }
 
     def start_episode(self) -> None:
@@ -134,20 +144,28 @@ class Model:
     def should_update(self) -> bool:
         return self.buffer_step_count >= self.cfg.batch_size_limit
 
-    def finish_episode(self, *, success: bool, collision: bool = False,
-                       final_distance: Optional[float] = None) -> Dict[str, float]:
+    def finish_episode(
+        self, *, success: bool, collision: bool = False, final_distance: Optional[float] = None
+    ) -> Dict[str, float]:
         total_reward = float(sum(self._rewards))
 
         if not self._rewards or not self._log_probs:
             metrics = {
-                "total_reward": 0.0, "success": float(bool(success)),
-                "collision": float(bool(collision)), "steps": 0.0,
-                "final_distance": float(final_distance) if final_distance is not None else float("nan"),
+                "total_reward": 0.0,
+                "success": float(bool(success)),
+                "collision": float(bool(collision)),
+                "steps": 0.0,
+                "final_distance": (
+                    float(final_distance) if final_distance is not None else float("nan")
+                ),
                 "loss": float("nan"),
                 "baseline": float(np.mean(self.baseline_buffer)) if self.baseline_buffer else 0.0,
-                "grad_norm": float("nan"), "kl_div": float("nan"),
-                "sigma_mean": float("nan"), "sigma_joint_0": float("nan"),
-                "sigma_joint_1": float("nan"), "sigma_joint_2": float("nan"),
+                "grad_norm": float("nan"),
+                "kl_div": float("nan"),
+                "sigma_mean": float("nan"),
+                "sigma_joint_0": float("nan"),
+                "sigma_joint_1": float("nan"),
+                "sigma_joint_2": float("nan"),
                 "entropy": float("nan"),
             }
             self._append_train(metrics)
@@ -164,13 +182,19 @@ class Model:
         self.baseline_buffer.append(episode_return)
 
         metrics = {
-            "total_reward": total_reward, "success": float(bool(success)),
-            "collision": float(bool(collision)), "steps": float(len(self._rewards)),
+            "total_reward": total_reward,
+            "success": float(bool(success)),
+            "collision": float(bool(collision)),
+            "steps": float(len(self._rewards)),
             "final_distance": float(final_distance) if final_distance is not None else float("nan"),
-            "loss": float("nan"), "baseline": float(np.mean(self.baseline_buffer)),
-            "grad_norm": float("nan"), "kl_div": float("nan"),
-            "sigma_mean": float("nan"), "sigma_joint_0": float("nan"),
-            "sigma_joint_1": float("nan"), "sigma_joint_2": float("nan"),
+            "loss": float("nan"),
+            "baseline": float(np.mean(self.baseline_buffer)),
+            "grad_norm": float("nan"),
+            "kl_div": float("nan"),
+            "sigma_mean": float("nan"),
+            "sigma_joint_0": float("nan"),
+            "sigma_joint_1": float("nan"),
+            "sigma_joint_2": float("nan"),
             "entropy": float("nan"),
         }
 
@@ -248,7 +272,9 @@ class Model:
 
                 self.optimizer.zero_grad(set_to_none=True)
                 loss.backward()
-                grad_norm = torch.nn.utils.clip_grad_norm_(self.policy.parameters(), self.cfg.grad_clip_norm)
+                grad_norm = torch.nn.utils.clip_grad_norm_(
+                    self.policy.parameters(), self.cfg.grad_clip_norm
+                )
                 self.optimizer.step()
 
                 epoch_losses.append(loss.item())
@@ -268,8 +294,9 @@ class Model:
             "entropy": float(np.mean(epoch_entropies)) if epoch_entropies else float("nan"),
         }
 
-    def record_test_episode(self, *, success: bool, collision: bool,
-                            final_distance: float, steps: int) -> None:
+    def record_test_episode(
+        self, *, success: bool, collision: bool, final_distance: float, steps: int
+    ) -> None:
         self.test["success"].append(float(bool(success)))
         self.test["collision"].append(float(bool(collision)))
         self.test["final_distance"].append(float(final_distance))
@@ -300,7 +327,9 @@ class Model:
         out.reverse()
         return torch.tensor(out, dtype=torch.float32)
 
-    def save(self, path: str, *, include_optimizer: bool = False, include_metrics: bool = False) -> None:
+    def save(
+        self, path: str, *, include_optimizer: bool = False, include_metrics: bool = False
+    ) -> None:
         ckpt = {"policy_state_dict": self.policy.state_dict()}
         if include_optimizer:
             ckpt["optimizer_state_dict"] = self.optimizer.state_dict()

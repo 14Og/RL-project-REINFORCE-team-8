@@ -29,8 +29,7 @@ class ObstacleManager:
         self._rng = rng or np.random.default_rng()
         self._base_positions = [np.asarray(pos, dtype=float) for pos in cfg.positions]
         self.obstacles: List[Obstacle] = [
-            Obstacle(center=bp.copy(), radius=cfg.radius)
-            for bp in self._base_positions
+            Obstacle(center=bp.copy(), radius=cfg.radius) for bp in self._base_positions
         ]
 
     def randomize(self) -> None:
