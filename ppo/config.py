@@ -46,7 +46,6 @@ class ModelConfig:
     gamma: float = 0.97
     lr_start: float = 3e-4
     lr_min: float = 1e-6
-    baseline_buf_len: int = 200
     grad_clip_norm: float = 1.0
     hidden_sizes: Tuple[int, ...] = (256, 128)
     log_std_min: float = -2.0
@@ -95,7 +94,7 @@ class GUIConfig:
     steps_per_frame: int = 1
     steps_per_frame_no_sim: int = 1000
     model_path: str = "policy/best_policy.pt"
-    train_episodes: int = 5000
+    train_episodes: int = 10000
     test_episodes: int = 500
 
 

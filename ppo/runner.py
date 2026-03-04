@@ -1,55 +1,3 @@
-"""
-Runner — unified training/evaluation loop.
-
-Works in two modes:
-  - Headless (``pygame_renderer=None``): live-updating matplotlib figure with no
-    pygame dependency. Works from scripts (interactive window via plt.ion) and
-    Jupyter notebooks (inline via IPython.display).
-  - Pygame: passes the same matplotlib Figure to ``PygameRenderer`` which
-    converts it to a surface and blits it into the pygame window. Zero
-    duplicated loop logic between the two modes.
-
-Typical notebook usage
-----------------------
-::
-
-    from reinforce.runner import Runner, compute_obs_dim
-    from reinforce.model_ppo import Model
-    from reinforce.config import (
-        RobotConfig, LidarConfig, EnvConfig, RewardConfig, ObstacleConfig, GUIConfig, ModelConfig,
-    )
-
-    robot_cfg  = RobotConfig()
-    lidar_cfg  = LidarConfig()
-    model_cfg  = ModelConfig()
-    gui_cfg    = GUIConfig()
-    obs_dim    = compute_obs_dim(robot_cfg, lidar_cfg)
-    model      = Model(
-        obs_dim=obs_dim,
-        act_dim=len(robot_cfg.link_lengths),
-        cfg=model_cfg,
-        action_limit=robot_cfg.dtheta_max,
-        train_episodes=gui_cfg.train_episodes,
-        max_steps=EnvConfig().max_steps,
-    )
-    runner = Runner(
-        env_cfg=EnvConfig(), reward_cfg=RewardConfig(),
-        robot_cfg=robot_cfg, lidar_cfg=lidar_cfg,
-        obstacle_cfg=ObstacleConfig(), gui_cfg=gui_cfg, model=model,
-    )
-    runner.train(episodes=500)   # live plot updates inline every plot_update_every ep
-    runner.test(episodes=100)
-
-Typical pygame usage (called from main.py, not directly)
----------------------------------------------------------
-::
-
-    from reinforce.gui import PygameRenderer
-    renderer = PygameRenderer(gui_cfg, env_cfg)
-    runner   = Runner(..., pygame_renderer=renderer)
-    runner.run()   # train → save → test, full interactive window
-"""
-
 from __future__ import annotations
 
 from typing import Any, Dict, Optional, Protocol, Tuple
@@ -66,11 +14,6 @@ from .config import (
 )
 from .env import Environment
 from .model_ppo import Model
-
-
-# ---------------------------------------------------------------------------
-# Notebook detection
-# ---------------------------------------------------------------------------
 
 
 def _is_notebook() -> bool:
@@ -294,7 +237,7 @@ class Runner:
             # 4 rows × 2 cols; last row spans both columns for success rate
             from matplotlib.gridspec import GridSpec
 
-            gs = GridSpec(4, 2, figure=self._fig, hspace=0.35, wspace=0.25)
+            gs = GridSpec(4, 2, figure=self._fig, hspace=0.55, wspace=0.35)
             self._axes = (
                 self._fig.add_subplot(gs[0, 0]),  # ax1: total reward
                 self._fig.add_subplot(gs[0, 1]),  # ax2: steps/episode
@@ -318,13 +261,13 @@ class Runner:
             if not _is_notebook():
                 plt.show(block=False)
 
-        self._fig.suptitle(f"{mode} metrics", fontsize=12, y=0.99)
-        self._fig.tight_layout(pad=0.8, rect=[0, 0, 1, 0.97])
+        self._fig.suptitle(f"{mode} metrics", fontsize=18, y=0.995)
+        self._fig.tight_layout(pad=0.4, rect=[0.01, 0.01, 0.99, 0.97])
 
     def _update_live_plot(self, mode: str) -> None:
         """Redraw axes content, then push the update to the correct display backend."""
         self._draw_metrics(mode)
-        self._fig.tight_layout(pad=0.8, rect=[0, 0, 1, 0.97])
+        self._fig.tight_layout(pad=0.4, rect=[0.01, 0.01, 0.99, 0.97])
 
         if self.pygame_renderer is not None:
             # Renderer caches a converted surface; it stays valid until the next
@@ -372,16 +315,18 @@ class Runner:
             if r.size:
                 ax1.plot(*_downsample(r), alpha=0.3, lw=0.5, color="#2196F3")
                 ax1.plot(*_downsample(_running_mean(r, win)), lw=1.8, color="#1565C0")
-            ax1.set_title(f"total reward (ma={win})", fontsize=9)
-            ax1.set_xlabel("episode", fontsize=8)
+            ax1.set_title(f"total reward (ma={win})", fontsize=14)
+            ax1.set_xlabel("episode", fontsize=12)
+            ax1.tick_params(labelsize=11)
             ax1.grid(True, alpha=0.3)
 
             # Row 0, Col 1: Steps/episode
             if steps.size:
                 ax2.plot(*_downsample(steps), alpha=0.3, lw=0.5, color="#FF9800")
                 ax2.plot(*_downsample(_running_mean(steps, win)), lw=1.8, color="#E65100")
-            ax2.set_title(f"steps / episode (ma={win})", fontsize=9)
-            ax2.set_xlabel("episode", fontsize=8)
+            ax2.set_title(f"steps / episode (ma={win})", fontsize=14)
+            ax2.set_xlabel("episode", fontsize=12)
+            ax2.tick_params(labelsize=11)
             ax2.grid(True, alpha=0.3)
 
             # Row 1, Col 0: KL divergence
@@ -390,8 +335,9 @@ class Runner:
                 if valid_kl.size > 0:
                     ax3.plot(*_downsample(valid_kl), alpha=0.3, lw=0.5, color="#9C27B0")
                     ax3.plot(*_downsample(_running_mean(valid_kl, win)), lw=1.8, color="#6A1B9A")
-            ax3.set_title(f"KL divergence (ma={win})", fontsize=9)
-            ax3.set_xlabel("update", fontsize=8)
+            ax3.set_title(f"KL divergence (ma={win})", fontsize=14)
+            ax3.set_xlabel("update", fontsize=12)
+            ax3.tick_params(labelsize=11)
             ax3.grid(True, alpha=0.3)
 
             # Row 1, Col 1: Sigma (all joints)
@@ -425,17 +371,19 @@ class Runner:
                         label="joint_2",
                         alpha=0.8,
                     )
-            ax4.set_title("sigma (policy std)", fontsize=9)
-            ax4.set_xlabel("update", fontsize=8)
-            ax4.legend(fontsize=7, loc="best")
+            ax4.set_title("sigma (policy std)", fontsize=14)
+            ax4.set_xlabel("update", fontsize=12)
+            ax4.legend(fontsize=11, loc="best")
+            ax4.tick_params(labelsize=11)
             ax4.grid(True, alpha=0.3)
 
             # Row 2, Col 0: Collision rate
             if c.size:
                 ax5.plot(*_downsample(_windowed_rate(c, self._win)), lw=1.8, color="#F44336")
             ax5.set_ylim(-0.05, 1.05)
-            ax5.set_title(f"collision rate (window={self._win})", fontsize=9)
-            ax5.set_xlabel("episode", fontsize=8)
+            ax5.set_title(f"collision rate (window={self._win})", fontsize=14)
+            ax5.set_xlabel("episode", fontsize=12)
+            ax5.tick_params(labelsize=11)
             ax5.grid(True, alpha=0.3)
 
             # Row 2, Col 1: Entropy
@@ -446,16 +394,18 @@ class Runner:
                     ax6.plot(
                         *_downsample(_running_mean(valid_entropy, win)), lw=1.8, color="#455A64"
                     )
-            ax6.set_title(f"entropy (ma={win})", fontsize=9)
-            ax6.set_xlabel("update", fontsize=8)
+            ax6.set_title(f"entropy (ma={win})", fontsize=14)
+            ax6.set_xlabel("update", fontsize=12)
+            ax6.tick_params(labelsize=11)
             ax6.grid(True, alpha=0.3)
 
             # Row 3, full width: Success rate
             if s.size:
                 ax7.plot(*_downsample(_windowed_rate(s, self._win)), lw=2.0, color="#4CAF50")
             ax7.set_ylim(-0.05, 1.05)
-            ax7.set_title(f"success rate (window={self._win})", fontsize=10, fontweight="bold")
-            ax7.set_xlabel("episode")
+            ax7.set_title(f"success rate (window={self._win})", fontsize=15, fontweight="bold")
+            ax7.set_xlabel("episode", fontsize=12)
+            ax7.tick_params(labelsize=11)
             ax7.grid(True, alpha=0.3)
 
         else:  # test
@@ -472,21 +422,24 @@ class Runner:
             if s.size:
                 ax1.plot(np.cumsum(s) / np.arange(1, s.size + 1), lw=1.8, color="#4CAF50")
             ax1.set_ylim(-0.05, 1.05)
-            ax1.set_title("cumulative success rate")
-            ax1.set_xlabel("episode", fontsize=8)
+            ax1.set_title("cumulative success rate", fontsize=14)
+            ax1.set_xlabel("episode", fontsize=12)
+            ax1.tick_params(labelsize=11)
             ax1.grid(True, alpha=0.3)
 
             if coll.size:
                 ax2.plot(np.cumsum(coll) / np.arange(1, coll.size + 1), lw=1.8, color="#F44336")
             ax2.set_ylim(-0.05, 1.05)
-            ax2.set_title("cumulative collision rate")
-            ax2.set_xlabel("episode", fontsize=8)
+            ax2.set_title("cumulative collision rate", fontsize=14)
+            ax2.set_xlabel("episode", fontsize=12)
+            ax2.tick_params(labelsize=11)
             ax2.grid(True, alpha=0.3)
 
             if steps.size:
                 ax3.plot(steps, color="#FF9800", lw=0.8)
-            ax3.set_title("steps / episode")
-            ax3.set_xlabel("episode", fontsize=8)
+            ax3.set_title("steps / episode", fontsize=14)
+            ax3.set_xlabel("episode", fontsize=12)
+            ax3.tick_params(labelsize=11)
             ax3.grid(True, alpha=0.3)
 
     # ------------------------------------------------------------------

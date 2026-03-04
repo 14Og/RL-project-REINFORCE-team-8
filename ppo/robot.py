@@ -10,9 +10,14 @@ from typing import List, Optional, Tuple
 
 
 class Robot:
-    def __init__(self, robot_cfg: RobotConfig, lidar_cfg: LidarConfig,
-                 obstacles: List[Obstacle], seed: int = 42,
-                 theta: Optional[np.ndarray] = None):
+    def __init__(
+        self,
+        robot_cfg: RobotConfig,
+        lidar_cfg: LidarConfig,
+        obstacles: List[Obstacle],
+        seed: int = 42,
+        theta: Optional[np.ndarray] = None,
+    ):
         self.cfg = robot_cfg
         self.rng = np.random.default_rng(seed)
 
@@ -50,7 +55,9 @@ class Robot:
         p = self.base
         for i, L in enumerate(self.links):
             cumulative_angle += self._theta[i]
-            p = p + np.array([L * math.cos(cumulative_angle), L * math.sin(cumulative_angle)], dtype=float)
+            p = p + np.array(
+                [L * math.cos(cumulative_angle), L * math.sin(cumulative_angle)], dtype=float
+            )
             points.append(p)
         return np.stack(points, axis=0)
 
@@ -78,11 +85,16 @@ class Robot:
             rays=rays,
         )
 
-    def reset(self, randomize: bool = True, n_angle_candidates: int = 36,
-              greedy_attempts: int = 5, collision_threshold: float = 0.05) -> State:
+    def reset(
+        self,
+        randomize: bool = True,
+        n_angle_candidates: int = 36,
+        greedy_attempts: int = 5,
+        collision_threshold: float = 0.05,
+    ) -> State:
         if not randomize:
             if self.cfg.initial_thetas is not None:
-                self._theta[:] = np.array(self.cfg.initial_thetas, dtype=float)[:self.n_dof]
+                self._theta[:] = np.array(self.cfg.initial_thetas, dtype=float)[: self.n_dof]
             else:
                 self._theta[:] = 0.0
             if self.cfg.wrap_angles:
@@ -106,7 +118,9 @@ class Robot:
                 for delta in shuffled:
                     abs_angle = cumulative + delta
                     p_next = p + np.array([L * math.cos(abs_angle), L * math.sin(abs_angle)])
-                    clearance = self._segment_min_clearance(p, p_next, obstacles, collision_threshold)
+                    clearance = self._segment_min_clearance(
+                        p, p_next, obstacles, collision_threshold
+                    )
                     if clearance > 0.0:
                         valid.append(delta)
                     clearances.append((clearance, delta))
@@ -120,16 +134,20 @@ class Robot:
                 cumulative += theta[i]
                 p = p + np.array([L * math.cos(cumulative), L * math.sin(cumulative)])
 
-            self._theta = np.array([self.wrap_angle(t) for t in theta], dtype=float) \
-                if self.cfg.wrap_angles else theta
+            self._theta = (
+                np.array([self.wrap_angle(t) for t in theta], dtype=float)
+                if self.cfg.wrap_angles
+                else theta
+            )
             if success:
                 break
 
         return self.obs()
 
     @staticmethod
-    def _segment_min_clearance(p1: np.ndarray, p2: np.ndarray,
-                                obstacles: list, threshold: float) -> float:
+    def _segment_min_clearance(
+        p1: np.ndarray, p2: np.ndarray, obstacles: list, threshold: float
+    ) -> float:
         min_clearance = math.inf
         vec = p2 - p1
         denom = float(np.dot(vec, vec)) + 1e-6

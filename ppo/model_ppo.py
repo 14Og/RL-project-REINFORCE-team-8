@@ -8,8 +8,7 @@ import torch
 import torch.nn as nn
 from torch.distributions import Normal
 
-from collections import deque
-from typing import Deque, Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 
 class GaussianMLPPolicy(nn.Module):
@@ -69,8 +68,6 @@ class Model:
             self.optimizer, T_max=n_ppo_updates, eta_min=float(self.cfg.lr_min)
         )
 
-        self.baseline_buffer: Deque[float] = deque(maxlen=int(self.cfg.baseline_buf_len))
-
         self._states: List[torch.Tensor] = []
         self._actions: List[torch.Tensor] = []
         self._log_probs: List[torch.Tensor] = []
@@ -91,7 +88,6 @@ class Model:
             "steps": [],
             "final_distance": [],
             "loss": [],
-            "baseline": [],
             "grad_norm": [],
             "kl_div": [],
             "sigma_mean": [],
@@ -159,7 +155,6 @@ class Model:
                     float(final_distance) if final_distance is not None else float("nan")
                 ),
                 "loss": float("nan"),
-                "baseline": float(np.mean(self.baseline_buffer)) if self.baseline_buffer else 0.0,
                 "grad_norm": float("nan"),
                 "kl_div": float("nan"),
                 "sigma_mean": float("nan"),
@@ -179,7 +174,6 @@ class Model:
         self.buffer_log_probs.extend(self._log_probs)
         self.buffer_rewards.extend(returns.tolist())
         self.buffer_step_count += len(self._rewards)
-        self.baseline_buffer.append(episode_return)
 
         metrics = {
             "total_reward": total_reward,
@@ -188,7 +182,6 @@ class Model:
             "steps": float(len(self._rewards)),
             "final_distance": float(final_distance) if final_distance is not None else float("nan"),
             "loss": float("nan"),
-            "baseline": float(np.mean(self.baseline_buffer)),
             "grad_norm": float("nan"),
             "kl_div": float("nan"),
             "sigma_mean": float("nan"),
@@ -336,7 +329,6 @@ class Model:
         if include_metrics:
             ckpt["train_metrics"] = self.train
             ckpt["test_metrics"] = self.test
-            ckpt["baseline_buffer"] = list(self.baseline_buffer)
         torch.save(ckpt, path)
 
     def load(self, path: str, *, load_optimizer: bool = False, strict: bool = True) -> None:
