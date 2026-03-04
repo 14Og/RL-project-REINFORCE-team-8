@@ -180,25 +180,33 @@ where $z$ is the output of a shared MLP trunk $(256 \to 128)$ with ReLU activati
 
 To give the agent spatial awareness of obstacles, we implemented a **LIDAR-like perception system**: 8 rays per joint, uniformly distributed over $[0, 2\pi)$, each returning a normalized distance to the nearest obstacle intersection. This expanded the observation from 10 to 34 dimensions.
 
-![LIDAR perception](assets/lidars.gif)
+<p align="center">
+  <img src="assets/lidars.gif" alt="LIDAR perception" width="400">
+</p>
 
 ### Iteration 2 — Training with Two Obstacles
 
 We began training with two circular obstacles in the workspace. The agent learned to reach targets while avoiding the obstacles, validating that the LIDAR signal and obstacle-proximity penalty provide a sufficient learning signal.
 
-![Training with 2 obstacles](assets/2obs_train.gif)
+<p align="center">
+  <img src="assets/2obs_train.gif" alt="Training with 2 obstacles" width="400">
+</p>
 
 ### Iteration 3 — Training with Four Obstacles
 
 We scaled up to four obstacles with jittered positions ($\pm 40$ px around equilibrium each episode). The increased clutter forced the policy to generalize rather than memorize specific layouts.
 
-![Training with 4 obstacles](assets/early_train.gif)
+<p align="center">
+  <img src="assets/early_train.gif" alt="Training with 4 obstacles" width="600">
+</p>
 
 ### Iteration 4 — The "Stalled Robot" Problem
 
 After adding obstacle penalties, an unintended strategy emerged: **the robot preferred not to move at all** when the target was near an obstacle. Avoiding penalties outweighed the goal reward, so the agent learned that staying still was the safest option.
 
-![Stalled robot](assets/stalled_robot.gif)
+<p align="center">
+  <img src="assets/stalled_robot.gif" alt="Stalled robot" width="400">
+</p>
 
 ### Iteration 5 — Reward Refactoring
 
@@ -216,18 +224,29 @@ The trained policy was evaluated across three progressively harder scenarios:
 
 **Static obstacles, determined start position:**
 
-![Test — static obstacles](assets/test_static_obs_determined_start.gif)
-![Metrics — static obstacles](assets/test_metrics_static_obs_determined_start.gif)
+<p align="center">
+  <img src="assets/test_static_obs_determined_start.gif" alt="Test — static obstacles" width="400">
+</p>
 
 **Random obstacles, determined start position:**
 
-![Test — random obstacles](assets/test_random_obs_determined_start.gif)
-![Metrics — random obstacles](assets/test_metrics_random_obs_determined_start.gif)
+<p align="center">
+  <img src="assets/test_random_obs_determined_start.gif" alt="Test — random obstacles" width="400">
+</p>
 
 **Random obstacles, random start position:**
 
-![Test — random obstacles, random start](assets/test_random_obs_random_start.gif)
-![Metrics — random obstacles, random start](assets/test_metrics_random_obs_random_start.gif)
+<p align="center">
+  <img src="assets/test_random_obs_random_start.gif" alt="Test — random obstacles, random start" width="400">
+</p>
+
+**Test metrics** (static/determined | random/determined | random/random):
+
+<p align="center">
+  <img src="assets/test_metrics_static_obs_determined_start.gif" alt="Metrics — static obstacles, determined start" width="33%">
+  <img src="assets/test_metrics_random_obs_determined_start.gif" alt="Metrics — random obstacles, determined start" width="33%">
+  <img src="assets/test_metrics_random_obs_random_start.gif" alt="Metrics — random obstacles, random start" width="33%">
+</p>
 
 ### PPO vs REINFORCE Comparison
 
@@ -238,8 +257,13 @@ We compared the trained PPO policy against a vanilla REINFORCE agent in the same
 - Better behavior under complex reward shaping
 - Higher resistance to policy collapse
 
-![REINFORCE test](assets/test_reinforce.gif)
-![REINFORCE metrics](assets/test_metrics_reinforce.gif)
+<p align="center">
+  <img src="assets/test_reinforce.gif" alt="REINFORCE test" width="400">
+</p>
+
+<p align="center">
+  <img src="assets/test_metrics_reinforce.gif" alt="REINFORCE metrics" width="400">
+</p>
 
 ---
 
