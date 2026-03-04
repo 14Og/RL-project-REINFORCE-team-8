@@ -80,7 +80,7 @@ $$r_t = \underbrace{\alpha \cdot \Delta d \cdot b(d)}_{\text{progress + near-goa
 
 where the boost factor $b(d)$ amplifies the progress signal near the goal:
 
-$$b(d) = \begin{cases} 1 + k \cdot \left(1 - \dfrac{d}{R}\right) & \text{if } d < R \\ 1 & \text{otherwise} \end{cases}$$
+$$b(d) = 1 + k \cdot \left(1 - \frac{d}{R}\right) \quad \text{if } d < R, \qquad b(d) = 1 \quad \text{otherwise}$$
 
 | Component | Parameter | Default | Description |
 |---|---|---|---|
@@ -129,7 +129,7 @@ Instead of updating after each episode, PPO accumulates a buffer of at least 204
 
 For the same batch of transitions, actions are re-evaluated under the **current** policy to compute the clipped surrogate loss. Let $\hat{A}_t$ denote the advantage estimate (batch-normalized returns) and $\epsilon = 0.15$ the clip coefficient:
 
-$$\mathcal{L}^{\text{CLIP}} = -\mathbb{E}_t \left[ \min\!\left(\frac{\pi_\theta(a_t \mid s_t)}{\pi_{\theta_{\text{old}}}(a_t \mid s_t)} \hat{A}_t,\ \text{clip}\!\left(\frac{\pi_\theta(a_t \mid s_t)}{\pi_{\theta_{\text{old}}}(a_t \mid s_t)},\, 1 - \epsilon,\, 1 + \epsilon\right) \hat{A}_t\right) \right]$$
+$$\mathcal{L}^{\text{CLIP}} = -\mathbb{E}_t \left[ \min\left(\frac{\pi_\theta(a_t \mid s_t)}{\pi_{\theta_{\text{old}}}(a_t \mid s_t)} \hat{A}_t,\ \text{clip}\left(\frac{\pi_\theta(a_t \mid s_t)}{\pi_{\theta_{\text{old}}}(a_t \mid s_t)}, 1 - \epsilon, 1 + \epsilon\right) \hat{A}_t\right) \right]$$
 
 The clipping prevents the probability ratio from deviating too far from $1$, limiting destructively large policy updates.
 
