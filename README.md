@@ -1,6 +1,6 @@
-# REINFORCE — 2-DOF Planar Manipulator
+# PPO — 3-DOF Planar Manipulator with Obstacle Avoidance
 
-Training a two-link planar robot arm to reach arbitrary target points using the REINFORCE policy-gradient algorithm with a moving-average baseline.
+Training a three-link planar robot arm to reach arbitrary target points while avoiding obstacles, using Proximal Policy Optimization (PPO) with LIDAR-like perception.
 
 ![Python 3.12](https://img.shields.io/badge/python-3.12-blue)
 
@@ -8,17 +8,18 @@ Training a two-link planar robot arm to reach arbitrary target points using the 
 
 ## Problem Definition
 
-A **two-link (2-DOF) planar manipulator** is mounted on a fixed base.
-The agent controls two joint velocities $\Delta\theta_1, \Delta\theta_2$ to move the end-effector toward a randomly placed target point within the reachable workspace.
+A **three-link (3-DOF) planar manipulator** is mounted on a fixed base.
+The agent controls three joint velocities $\Delta\theta_1, \Delta\theta_2, \Delta\theta_3$ to move the end-effector toward a randomly placed target point while avoiding four circular obstacles scattered around the workspace.
 
 | Property | Value |
 |---|---|
-| Link lengths | $L_1 = 100,\; L_2 = 80$ (px) |
-| Action constraint | $\|\Delta\theta_i\| \le 0.1$ rad per step |
+| Link lengths | $L_1 = 100,\; L_2 = 70,\; L_3 = 40$ (px) |
+| Action constraint | $\|\Delta\theta_i\| \le 0.3$ rad per step |
 | Goal condition | End-effector within 30 px of target |
 | Max episode length | 200 steps |
+| Obstacles | 4 circles, radius 50 px, jittered ±40 px |
 
-The environment is **deterministic**: given the same state and action, the next state is uniquely determined by forward kinematics. Randomness enters only through the initial joint angles and target position, both sampled uniformly at the start of each episode.
+The environment is **deterministic**: given the same state and action, the next state is uniquely determined by forward kinematics. Randomness enters through initial joint angles, target position, and obstacle jitter — all sampled at the start of each episode.
 
 ---
 
@@ -26,70 +27,123 @@ The environment is **deterministic**: given the same state and action, the next 
 
 ### State Space
 
-An 8-dimensional real-valued vector:
+A 34-dimensional real-valued vector:
 
-$$s_t = \bigl(\sin\theta_1, \cos\theta_1, \sin\theta_2, \cos\theta_2, x_{ee}, y_{ee}, \Delta x, \Delta y\bigr)$$
+$$s_t = \bigl(\underbrace{\sin\theta_1, \cos\theta_1, \sin\theta_2, \cos\theta_2, \sin\theta_3, \cos\theta_3}_{6},\; \underbrace{x_{ee}, y_{ee}}_{2},\; \underbrace{\Delta x, \Delta y}_{2},\; \underbrace{r_1, \dots, r_{24}}_{\text{LIDAR}}\bigr)$$
 
-| Feature | Description |
-|---|---|
-| $\sin\theta_i, \cos\theta_i$ | Trigonometric encoding of joint angles avoids the $-\pi/\pi$ discontinuity that raw angles introduce |
-| $x_{ee}$ $y_{ee}$ | End-effector position centered on the base and normalized by the maximum reach |
-| $\Delta x, \Delta y$ | Signed distance from end-effector to target, normalized by a scale factor (300) |
+| Feature | Dim | Description |
+|---|---|---|
+| $\sin\theta_i, \cos\theta_i$ | 6 | Trigonometric encoding of joint angles avoids the $-\pi/\pi$ discontinuity |
+| $x_{ee},\; y_{ee}$ | 2 | End-effector position centered on the base and normalized by maximum reach |
+| $\Delta x,\; \Delta y$ | 2 | Signed distance from end-effector to target, normalized by maximum reach |
+| LIDAR rays | 24 | 8 rays per joint × 3 joints; each value in $[0, 1]$ (see below) |
+
+### LIDAR Perception
+
+Without explicit obstacle information in the state, the agent cannot learn to avoid collisions. We added a LIDAR-like sensor system:
+
+- **8 rays** are cast from each of the 3 joints, uniformly distributed over $[0, 2\pi)$
+- Each ray extends up to 50 px; the reading is the normalized distance to the first obstacle intersection
+- If a ray does not hit any obstacle, the reading is $1.0$; contact yields $0.0$
+- This produces $3 \times 8 = 24$ additional state features
 
 ### Action Space
 
-Continuous, 2-dimensional: $a_t = (\Delta\theta_1, \Delta\theta_2) \in [-0.1, 0.1]^2$ rad.
+Continuous, 3-dimensional: $a_t = (\Delta\theta_1, \Delta\theta_2, \Delta\theta_3) \in [-0.3, 0.3]^3$ rad.
 
 The policy outputs a mean (bounded via $\tanh$) and a per-joint standard deviation; an action is sampled from the resulting diagonal Gaussian and then hard-clipped by the robot to enforce the physical constraint.
+
+### Obstacles
+
+Four circular obstacles are placed in the workspace. At the start of each episode, each obstacle is jittered by a random offset (up to 40 px) around its equilibrium position. The agent must navigate around them to reach the target.
+
+| Parameter | Value |
+|---|---|
+| Number of obstacles | 4 |
+| Radius | 50 px |
+| Jitter radius | 40 px |
+| Equilibrium positions | $(200, 600)$, $(600, 600)$, $(400, 800)$, $(400, 400)$ |
 
 ### Termination Conditions
 
 | Condition | Type | Reward signal |
 |---|---|---|
-| End-effector within `target_thresh` of target | **Success** | $+15$ |
-| A link segment passes through the target point | **Failure** | $-5$ |
-| Step count reaches `max_steps` | **Truncation** | $-5$ |
+| End-effector within `target_thresh` of target | **Success** | $+50$ |
+| A link collides with an obstacle | **Collision** | $-10$ |
+| A link segment passes through the target point | **Failure** | $-15$ |
+| Stagnation detected (no progress) | **Failure** | $-15$ |
+| Step count reaches `max_steps` | **Truncation** | $-15$ |
 
 ### Reward Function
 
-$$r_t = \underbrace{\alpha \cdot (d_{t-1} - d_t)}_{\text{progress}} - \underbrace{\beta}_{\text{step penalty}} + \underbrace{R_{\text{terminal}}}_{\text{goal / fail / timeout}}$$
+$$r_t = \underbrace{\alpha \cdot \Delta d \cdot b(d)}_{\text{progress + near-goal boost}} - \underbrace{\beta}_{\text{step penalty}} - \underbrace{\sum_i p_i}_{\text{obstacle proximity}} + \underbrace{R_{\text{terminal}}}_{\text{goal / collision / fail}}$$
 
-| Component | Parameter | Default |
-|---|---|---|
-| Progress scale | $\alpha$ | 0.03 |
-| Step penalty | $\beta$ | 0.01 |
-| Goal bonus | $R_{\text{goal}}$ | +15.0 |
-| Failure / timeout penalty | $R_{\text{fail}}$ | −5.0 |
+where the boost factor $b(d)$ amplifies the progress signal near the goal:
 
-Optional smoothness penalties ($\lVert a_t \rVert_2$ and $\lVert a_t - a_{t-1} \rVert_2$) are available but disabled by default.
+$$b(d) = 1 + k \cdot \left(1 - \frac{d}{R}\right) \quad \text{if } d < R, \qquad b(d) = 1 \quad \text{otherwise}$$
+
+| Component | Parameter | Default | Description |
+|---|---|---|---|
+| Progress scale | $\alpha$ | 0.15 | Reward proportional to distance reduction $\Delta d = d_{t-1} - d_t$ |
+| Near-goal boost factor | $k$ | 3.0 | Maximum extra multiplier on progress when $d \to 0$ |
+| Boost radius | $R$ | 80 px | Distance threshold below which the boost activates |
+| Step penalty | $\beta$ | 0.005 | Small per-step cost to encourage efficiency |
+| Obstacle danger | $p_i$ | 0.05 | Quadratic ramp when LIDAR reading < 0.15 threshold |
+| Collision penalty | $R_{\text{collision}}$ | 10.0 | Large penalty on direct obstacle contact |
+| Goal bonus | $R_{\text{goal}}$ | +50.0 | Terminal reward for reaching the target |
+| Failure / timeout / stagnation | $R_{\text{fail}}$ | −15.0 | Terminal penalty for failure, timeout, or stagnation |
+
+**Obstacle proximity penalty** — for each LIDAR sensor, if the minimum ray reading drops below the danger threshold:
+
+$$p_i = c \cdot \left(1 - \frac{d_{\min}}{\text{threshold}}\right)^2$$
+
+This provides a smooth, quadratic warning signal that grows stronger as the link approaches contact.
+
+**Near-goal boost** — when the end-effector enters the boost radius ($d < R$), the progress signal is scaled up by $b(d)$, reaching a maximum factor of $1 + k = 4$ at contact. This ensures the agent prioritizes reaching the goal even when obstacles are nearby.
 
 ---
 
-## REINFORCE Algorithm
+## PPO Algorithm
 
-We use the **REINFORCE** (Monte-Carlo policy gradient) algorithm. The core idea: collect a full trajectory under the current policy, compute returns, and update the policy parameters in the direction that increases the probability of actions that led to higher-than-expected returns.
+We use **Proximal Policy Optimization** (PPO), an on-policy actor-only algorithm that collects batches of experience and performs multiple epochs of clipped gradient updates. Compared to vanilla REINFORCE (used in the first iteration of this project), PPO provides more stable learning through its clipped objective and better sample efficiency through mini-batch reuse.
 
-### Policy Gradient Theorem
+### Why PPO over REINFORCE?
 
-The objective is to maximize the expected return:
+REINFORCE updates the policy once per episode using the full trajectory. This leads to high variance and poor sample efficiency. PPO addresses this by:
 
-$$J(\theta) = \mathbb{E}_{\tau \sim \pi_\theta} \left[ \sum_{t=0}^{T} \gamma^t\ \cdot r_t \right]$$
+1. **Batching trajectories** — accumulating multiple episodes into a buffer before updating
+2. **Reusing samples** — performing multiple optimization epochs on the same batch
+3. **Clipping the objective** — preventing destructively large policy updates
+4. **Early stopping via KL divergence** — halting updates when the policy changes too much
 
-The gradient of this objective is:
+### Trajectory Buffer
 
-$$\nabla_\theta J(\theta) = \mathbb{E}_{\tau \sim \pi_\theta} \left[ \sum_{t=0}^{T} \nabla_\theta \log \pi_\theta(A_t \mid S_t) \cdot G_t \right]$$
+Instead of updating after each episode, PPO accumulates a buffer of at least 2048 steps. Episodes are never truncated mid-way — each episode runs to completion, so the actual buffer size slightly exceeds 2048 steps. The buffer stores:
 
-where $G_t = \sum_{k=t}^{T} \gamma^{k-t} r_k$ is the discounted return from step $t$.
+- States $s_t$
+- Actions $a_t$
+- Log-probabilities $\log \pi_{\theta_{\text{old}}}(a_t \mid s_t)$
+- Discounted returns $G_t$
 
-### Baseline
+### Clipped Surrogate Objective
 
-To reduce variance of the gradient estimate without introducing bias, we subtract a **baseline** $b$ from the returns:
+For the same batch of transitions, actions are re-evaluated under the **current** policy to compute the clipped surrogate loss. Let $\hat{A}_t$ denote the advantage estimate (batch-normalized returns) and $\epsilon = 0.15$ the clip coefficient:
 
-$$\nabla_\theta J(\theta) = \mathbb{E}_{\tau \sim \pi_\theta} \left[ \sum_{t=0}^{T} \nabla_\theta \log \pi_\theta(A_t \mid S_t) \cdot (G_t-b) \right]$$
+$$\mathcal{L}^{\text{CLIP}} = -\mathbb{E}_{t\sim \mathrm{Uniform}[0, T_b - 1]} \left[ \min\left(\frac{\pi_\theta(A_t \mid S_t)}{\pi_{\theta_{\text{old}}}(A_t \mid S_t)} \hat{A}_t,\ \text{clip}\left(\frac{\pi_\theta(A_t \mid S_t)}{\pi_{\theta_{\text{old}}}(A_t \mid S_t)}, 1 - \epsilon, 1 + \epsilon\right) \hat{A}_t\right) \right]$$
 
-We use a **moving-average baseline**: $b = \text{mean}(G_0\text{ of last } N \text{ episodes})$, where $N = 200$.
+The clipping prevents the probability ratio from deviating too far from $1$, limiting destructively large policy updates.
 
-A common but problematic alternative is to normalize advantages within the current episode as $(G_t - \bar{G}) / \sigma_G$. While this centers the returns, dividing by per-episode standard deviation effectively rescales the learning rate on every update, which can destabilize training. Our rolling buffer approach avoids this by providing a stable, slowly-adapting baseline.
+An **entropy bonus** is subtracted from the loss to encourage exploration:
+
+$$\mathcal{L} = \mathcal{L}^{\text{CLIP}} - c_{\text{ent}} \cdot H[\pi_\theta]$$
+
+### KL-Based Early Stopping
+
+Before each epoch, the approximate KL divergence between old and new policies is computed:
+
+$$D_{\text{KL}}^{\text{approx}} = \mathbb{E}_{t\sim \mathrm{Uniform}[0, T_b - 1]}  \left[ \left(\frac{\pi_\theta(A_t \mid S_t)}{\pi_{\theta_{\text{old}}}(A_t \mid S_t)} - 1\right) - \log \frac{\pi_\theta(A_t \mid S_t)}{\pi_{\theta_{\text{old}}}(A_t \mid S_t)} \right]$$
+
+If this exceeds the target threshold ($0.015$), remaining epochs are skipped. This acts as a safety valve against policy collapse.
 
 ### Gaussian Policy
 
@@ -97,77 +151,115 @@ The policy network outputs parameters of a diagonal Gaussian distribution:
 
 $$\mu = \tanh(\text{head}_\mu(z)) \cdot \Delta\theta_{\max}$$
 
-$$\sigma = \exp\bigl(\text{clamp}(\text{head}_\sigma(z),\ \log\sigma_{\min},\ \log\sigma_{\max})\bigr) \cdot \Delta\theta_{\max}$$
+$$\sigma = \exp\bigl(\text{clamp}(\text{head}_\sigma(z), \log\sigma_{\min}, \log\sigma_{\max})\bigr) \cdot \Delta\theta_{\max}$$
 
-where $z$ is the output of a shared MLP trunk. The $\tanh$ on the mean ensures it stays within the physical action bounds. Standard deviation is clamped in log-space to $[-3.0, -0.5]$ to prevent collapse or explosion.
+where $z$ is the output of a shared MLP trunk $(256 \to 128)$ with ReLU activations. The $\tanh$ on the mean ensures it stays within the physical action bounds. Standard deviation is clamped in log-space to $[-2.0,\; 0.5]$.
 
 ### Update Rule
 
-After each episode:
-
-1. Compute discounted returns $G_t$ for every step.
-2. Compute advantages: $G_t - b$.
-3. Compute the loss:
-$$\mathcal{L} = -\frac{1}{T} \sum_{t=0}^{T} \log \pi_\theta(a_t \mid s_t) \cdot (G_t - b)$$
-4. Backpropagate and update $\theta$ with Adam (gradient norm clipped to 1.0).
+1. Accumulate transitions into the batch buffer until $\ge 2048$ steps are collected.
+2. Compute discounted returns $G_t$ for every step within each episode.
+3. Normalize advantages over the entire batch: $\hat{A}_t = (G_t - \bar{G}) / \sigma_G$.
+4. For up to 10 epochs:
+   - a. Check approximate KL divergence; stop if $> 0.015$.
+   - b. Shuffle the batch and split into mini-batches of 256.
+   - c. For each mini-batch, compute the clipped loss + entropy bonus.
+   - d. Backpropagate and update $\theta$ with Adam (gradient norm clipped to 1.0).
 5. Step the cosine-annealing learning rate scheduler.
-6. Append $G_0$ to the baseline buffer.
+6. Clear the batch buffer.
 
 ---
 
 ## Development History
 
-### Iteration 1 — Feasibility Check
+### Iteration 1 — LIDAR Implementation
 
-We started with a simple program to verify that the task is solvable at all: a fixed start position, a fixed target, and a **discrete** action space. The agent learned to reach the target reliably, confirming that the problem is well-posed and the reward signal is informative enough for learning.
+To give the agent spatial awareness of obstacles, we implemented a **LIDAR-like perception system**: 8 rays per joint, uniformly distributed over $[0, 2\pi)$, each returning a normalized distance to the nearest obstacle intersection. This expanded the observation from 10 to 34 dimensions.
 
-![Proof of concept](assets/proof_of_concept.gif)
+<p align="center">
+  <img src="assets/lidars.gif" alt="LIDAR perception" width="400">
+</p>
 
-### Iteration 2 — Continuous Actions, Static Target
+### Iteration 2 — Training with Two Obstacles
 
-We moved to a continuous Gaussian action space while keeping the target fixed (one target position) and randomizing only the robot's initial joint angles at each episode. Configuration:
+We began training with two circular obstacles in the workspace. The agent learned to reach targets while avoiding the obstacles, validating that the LIDAR signal and obstacle-proximity penalty provide a sufficient learning signal.
 
-- **Continuous action space**: Gaussian policy over $(\Delta\theta_1, \Delta\theta_2)$ bounded by $\pm0.1$ rad
-- **Network**: 2 hidden layers, 128 units each
-- **State**: full observation including joint encodings and end-effector position
-- **Hyperparameters**: $\text{lr} = 10^{-4}$ (annealed), $\gamma = 0.99$
+<p align="center">
+  <img src="assets/2obs_train.gif" alt="Training with 2 obstacles" width="400">
+</p>
 
-The agent learned to reach the single (static) target from randomized starts with high reliability (training stabilised in the order of ~1000 episodes).
+### Iteration 3 — Training with Four Obstacles
 
-Training on the static target (no-sim render):
+We scaled up to four obstacles with jittered positions ($\pm 40$ px around equilibrium each episode). The increased clutter forced the policy to generalize rather than memorize specific layouts.
 
-![Static target training](assets/learning_static_target_nosim.gif)
+<p align="center">
+  <img src="assets/early_train.gif" alt="Training with 4 obstacles" width="600">
+</p>
 
-Trained policy evaluation on the static target:
+### Iteration 4 — The "Stalled Robot" Problem
 
-![Static target testing](assets/testing_static_target.gif)
+After adding obstacle penalties, an unintended strategy emerged: **the robot preferred not to move at all** when the target was near an obstacle. Avoiding penalties outweighed the goal reward, so the agent learned that staying still was the safest option.
 
-### Iteration 3 — Continuous Actions, Random Targets
+<p align="center">
+  <img src="assets/stalled_robot.gif" alt="Stalled robot" width="400">
+</p>
 
-We moved to the full problem: **random initial joint angles**, **random target positions** within the reachable workspace, and a **continuous Gaussian action space**. Key changes:
+### Iteration 5 — Reward Refactoring
 
-- State extended to 8 dimensions (added normalized EE position)
-- Policy outputs 4 parameters: 2 means + 2 log-stds (two-headed network)
-- Mean bounded via $\tanh$ to respect the ±0.1 rad constraint; sampled actions beyond bounds are clipped
-- Learning rate annealed from $10^{-4}$ to $10^{-5}$ via cosine schedule
-- Moving-average baseline buffer (200 episodes) instead of per-episode normalization
-- $\gamma = 0.99$
+We addressed the stalled-robot problem with several reward changes:
 
-Early training — the agent starts exploring and learning to reach targets (rendering each 10-th robot step):
+1. **Near-goal progress boost** — the progress signal is amplified when the end-effector is close to the target ($< 80$ px), forcing the agent to prioritize the goal even in cluttered areas
+2. **Stagnation detection** — if the moving average of distance changes drops to near zero over a window of 15 steps, the episode terminates with a penalty
+3. **Increased goal reward** ($+50$) to dominate the obstacle penalty in the cost landscape
 
-![Early learning](assets/early_learning.gif)
+These changes rebalanced the reward landscape so that reaching the goal always dominates obstacle avoidance.
 
-Full training run (5000 episodes, simulation hidden for speed):
+### Final Result
 
-![Training without simulation](assets/learning_nosim.gif)
+The trained policy was evaluated across three progressively harder scenarios:
 
-Extended metrics view (all 7 training metrics):
+**Static obstacles, determined start position:**
 
-![Training extended metrics](assets/learning_extended_nosim.gif)
+<p align="center">
+  <img src="assets/test_static_obs_determined_start.gif" alt="Test — static obstacles" width="400">
+</p>
 
-Trained policy evaluation on random targets (sped-up):
+**Random obstacles, determined start position:**
 
-![Testing](assets/testing.gif)
+<p align="center">
+  <img src="assets/test_random_obs_determined_start.gif" alt="Test — random obstacles" width="400">
+</p>
+
+**Random obstacles, random start position:**
+
+<p align="center">
+  <img src="assets/test_random_obs_random_start.gif" alt="Test — random obstacles, random start" width="400">
+</p>
+
+**Test metrics** (static/determined | random/determined | random/random):
+
+<p align="center">
+  <img src="assets/test_metrics_static_obs_determined_start.gif" alt="Metrics — static obstacles, determined start" width="33%">
+  <img src="assets/test_metrics_random_obs_determined_start.gif" alt="Metrics — random obstacles, determined start" width="33%">
+  <img src="assets/test_metrics_random_obs_random_start.gif" alt="Metrics — random obstacles, random start" width="33%">
+</p>
+
+### PPO vs REINFORCE Comparison
+
+We compared the trained PPO policy against a vanilla REINFORCE agent in the same obstacle environment. PPO showed:
+
+- More stable training curves
+- Lower sensitivity to reward scale
+- Better behavior under complex reward shaping
+- Higher resistance to policy collapse
+
+<p align="center">
+  <img src="assets/test_reinforce.gif" alt="REINFORCE test" width="400">
+</p>
+
+<p align="center">
+  <img src="assets/test_metrics_reinforce.gif" alt="REINFORCE metrics" width="600">
+</p>
 
 ---
 
@@ -181,13 +273,16 @@ Trained policy evaluation on random targets (sped-up):
 ├── assets/                  # Demo GIFs and source videos
 ├── policy/
 │   └── best_policy.pt       # Saved trained policy weights
-└── reinforce/
+└── ppo/
     ├── __init__.py
-    ├── config.py            # Dataclass configs (Robot, Model, Reward, Env, GUI)
-    ├── state.py             # State dataclass (8-dim observation vector)
-    ├── robot.py             # 2-DOF planar arm: forward kinematics, step, obs
+    ├── config.py            # Dataclass configs (Robot, Lidar, Obstacle, Model, Reward, Env, GUI)
+    ├── state.py             # State dataclass (34-dim observation vector)
+    ├── robot.py             # 3-DOF planar arm: forward kinematics, step, obs
+    ├── lidar.py             # LIDAR sensor: ray casting against obstacles
+    ├── obstacle.py          # Obstacle / ObstacleManager: placement, jitter, collision
     ├── env.py               # RL environment: reset, step, reward, termination
-    ├── model.py             # GaussianMLPPolicy + REINFORCE Model (train/test)
+    ├── model_ppo.py         # GaussianMLPPolicy + PPO Model (train/test)
+    ├── runner.py            # Unified train/test loop (headless + pygame)
     └── gui.py               # Pygame GUI with live matplotlib plots
 ```
 
@@ -197,15 +292,20 @@ Trained policy evaluation on random targets (sped-up):
 
 | Parameter | Value |
 |---|---|
-| Hidden layers | 2 × 128 (ReLU) |
-| Discount $\gamma$ | 0.99 |
-| Learning rate | $10^{-4}$ → $10^{-5}$ (cosine annealing) |
-| Baseline buffer | 200 episodes |
+| Hidden layers | 256 → 128 (ReLU) |
+| Discount $\gamma$ | 0.97 |
+| Learning rate | $3 \times 10^{-4}$ → $10^{-6}$ (cosine annealing) |
+| Clip coefficient $\epsilon$ | 0.15 |
+| PPO epochs per update | 10 |
+| Mini-batch size | 256 |
+| Batch buffer size | 2048 steps |
+| Target KL | 0.015 |
+| Entropy coefficient | 0.01 |
 | Gradient clip norm | 1.0 |
-| $\log\sigma$ range | $[-3.0, -0.5]$ |
+| $\log\sigma$ range | $[-2.0,\; 0.5]$ |
 | Max episode steps | 200 |
-| Training episodes | 5000 |
-| Test episodes | 200 |
+| Training episodes | 10000 |
+| Test episodes | 500 |
 
 ---
 
@@ -237,7 +337,7 @@ python main.py --train --no-sim
 python main.py --test
 ```
 
-Loads the saved policy and runs 200 test episodes (configurable via `--test-episodes N`) with the simulation visible.
+Loads the saved policy and runs 500 test episodes (configurable via `--test-episodes N`) with the simulation visible.
 
 ### Additional Options
 
@@ -246,14 +346,13 @@ Loads the saved policy and runs 200 test episodes (configurable via `--test-epis
 --train-episodes N     Number of training episodes
 --test-episodes N      Number of test episodes
 --seed N               Random seed (default: 42)
---extended             (with --train --no-sim) Show all 7 training metrics
 ```
 
 ### Output
 
-- **Live GUI**: robot arm visualization + real-time plots (reward, success rate, steps per episode)
+- **Live GUI**: robot arm + obstacles + LIDAR rays visualization + real-time plots
 - **Saved model**: `policy/best_policy.pt`
-- **Metrics displayed**: total reward (moving avg), success rate (sliding window), steps/episode
+- **Metrics displayed**: total reward, success rate, collision rate, steps/episode, loss, KL divergence, entropy, per-joint sigma
 
 ---
 
@@ -263,8 +362,11 @@ Loads the saved policy and runs 200 test episodes (configurable via `--test-epis
 |---|---|
 | Total reward | Sum of rewards for the episode |
 | Success rate | Sliding-window average of goal-reached episodes |
+| Collision rate | Sliding-window average of obstacle collision episodes |
 | Steps / episode | Number of steps taken before termination |
 | Final distance | End-effector to target distance at episode end |
-| Policy loss | REINFORCE loss value |
-| Baseline | Current moving-average baseline value |
+| Policy loss | PPO clipped surrogate loss |
 | Gradient norm | Norm of the policy gradient (post-clip) |
+| KL divergence | Approximate KL between old and updated policy |
+| Entropy | Policy entropy (higher = more exploration) |
+| Sigma (per joint) | Mean standard deviation of the Gaussian policy per joint |
